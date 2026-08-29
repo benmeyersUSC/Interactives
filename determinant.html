@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Determinant Geometry Lab</title>
+<style>
+  :root{
+    --bg:#0b0d12; --panel:#11141b; --line:#252b36; --text:#eef2f7;
+    --muted:#8d97a6; --cyan:#72d6ff; --pink:#f2a7d0; --mint:#a7f3d0;
+    --gold:#f5c04a; --white:#ffffff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,sans-serif}
+  .wrap{display:grid;grid-template-columns:320px 1fr;height:100vh}
+  aside{background:var(--panel);border-right:1px solid var(--line);padding:20px;overflow:auto}
+  main{position:relative;min-width:0;min-height:0}
+  canvas{display:block;width:100%;height:100%;cursor:crosshair}
+  h1{font-size:18px;margin:0 0 6px}
+  .hint{font-size:10.5px;color:var(--muted);margin-bottom:8px}
+  .matrix-wrap{display:flex;align-items:center;gap:10px;justify-content:center;margin:64px 0 16px}
+  .Aeq{font:24px Georgia,serif}
+  .matrix{display:grid;grid-template-columns:1fr 1fr;gap:7px;width:132px}
+
+  /* --- hover slider --- */
+  .cell{position:relative}
+  .label{font-size:10px;color:var(--muted);margin-bottom:3px;text-align:center}
+  input[type=number]{width:100%;background:#090b10;color:var(--text);border:1px solid #394150;border-radius:6px;padding:7px 5px;text-align:center;font-size:14px}
+  input[type=number]:focus{outline:none;border-color:var(--cyan)}
+  .pop{
+    position:absolute;left:50%;transform:translateX(-50%) translateY(4px);
+    bottom:calc(100% + 8px);width:168px;padding:9px 11px 7px;
+    background:#0e1218;border:1px solid #3b4450;border-radius:9px;
+    box-shadow:0 10px 24px #000a;z-index:30;
+    opacity:0;visibility:hidden;transition:opacity .12s ease,transform .12s ease;
+  }
+  .cell:hover .pop,.cell:focus-within .pop{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0)}
+  .pop::after{content:"";position:absolute;left:-8px;right:-8px;top:100%;height:14px}
+  .pop .val{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--cyan);text-align:center;margin-bottom:6px}
+  .pop .ticks{display:flex;justify-content:space-between;font:9px ui-monospace,SFMono-Regular,Menlo,monospace;color:#5d6675;margin-top:2px}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;background:transparent;margin:0;display:block}
+  input[type=range]:focus{outline:none}
+  input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;
+    background:linear-gradient(90deg,#2b3340 0 50%,#39424f 50% calc(50% + 1px),#2b3340 calc(50% + 1px) 100%)}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;margin-top:-4.5px;
+    border-radius:50%;background:var(--cyan);cursor:grab;box-shadow:0 0 0 3px #72d6ff22}
+  input[type=range]:active::-webkit-slider-thumb{cursor:grabbing}
+  input[type=range]::-moz-range-track{height:4px;border-radius:2px;background:#2b3340}
+  input[type=range]::-moz-range-thumb{width:13px;height:13px;border:none;border-radius:50%;background:var(--cyan);cursor:grab}
+
+  .buttons{display:flex;flex-wrap:wrap;gap:5px}
+  button{background:#1a1f28;border:1px solid #353c49;color:#e8edf4;border-radius:6px;padding:6px 8px;cursor:pointer;font-size:11px}
+  button:hover{background:#232a35}
+  .section{margin-top:18px;border-top:1px solid var(--line);padding-top:14px}
+  .section-title{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:9px}
+  .math{font:16px Georgia,serif;line-height:1.55}
+  .heroArea{padding:11px 12px;border:1px solid #34404a;border-radius:8px;background:#0b1114}
+  .ghostArea{border-style:dashed;border-color:#3d4757;background:#0c1016}
+  .areaLine{font:22px Georgia,serif;text-align:center;margin:6px 0 5px}
+  .areaSub{font:11px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;text-align:center;color:var(--muted)}
+  .steps{font:12px/1.9 ui-monospace,SFMono-Regular,Menlo,monospace;color:#dce3ec}
+  .steps .k{color:var(--muted)}
+  .rule{border-top:1px solid #242a34;margin:9px 0 7px}
+  .match{font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;text-align:center;color:var(--mint)}
+  .mismatch{color:var(--gold)}
+  .rmat{display:inline-grid;grid-template-columns:1fr 1fr;gap:3px 22px;padding:6px 13px;border-left:2px solid #687386;border-right:2px solid #687386}
+  .rmat .symbol{font:20px Georgia,serif}.rmat .num{font:10px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted)}
+  .rmatCell{text-align:center}
+  .toggle{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);margin-top:9px}
+  .legend{position:absolute;left:16px;top:15px;background:#0e1117dd;border:1px solid #323946;border-radius:8px;padding:9px 11px;font-size:11px;line-height:1.7}
+  .swatch{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+  .dashbox{display:inline-block;width:9px;height:9px;border:1px dashed #ffffff55;border-radius:2px;margin-right:6px;vertical-align:-1px}
+  .topread{position:absolute;right:16px;top:15px;background:#0e1117dd;border:1px solid #323946;border-radius:8px;padding:9px 11px;font:11px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;text-align:right}
+  .viewbtns{position:absolute;right:16px;bottom:16px;display:flex;gap:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<aside>
+  <h1>Determinant Geometry</h1>
+  <div class="hint">hover an entry for a slider &middot; drag or scroll the plot</div>
+
+  <div class="matrix-wrap">
+    <div class="Aeq">A =</div>
+    <div class="matrix">
+      <div class="cell">
+        <div class="pop"><div class="val" id="val_a">1</div>
+          <input class="rng" id="rng_a" type="range" min="-5" max="5" step="0.05" value="1">
+          <div class="ticks"><span>&minus;5</span><span>0</span><span>5</span></div></div>
+        <div class="label">a</div><input id="a" type="number" step="0.05" value="1">
+      </div>
+      <div class="cell">
+        <div class="pop"><div class="val" id="val_b">0.25</div>
+          <input class="rng" id="rng_b" type="range" min="-5" max="5" step="0.05" value="0.25">
+          <div class="ticks"><span>&minus;5</span><span>0</span><span>5</span></div></div>
+        <div class="label">b</div><input id="b" type="number" step="0.05" value="0.25">
+      </div>
+      <div class="cell">
+        <div class="pop"><div class="val" id="val_c">0.8</div>
+          <input class="rng" id="rng_c" type="range" min="-5" max="5" step="0.05" value="0.8">
+          <div class="ticks"><span>&minus;5</span><span>0</span><span>5</span></div></div>
+        <div class="label">c</div><input id="c" type="number" step="0.05" value="0.8">
+      </div>
+      <div class="cell">
+        <div class="pop"><div class="val" id="val_d">1</div>
+          <input class="rng" id="rng_d" type="range" min="-5" max="5" step="0.05" value="1">
+          <div class="ticks"><span>&minus;5</span><span>0</span><span>5</span></div></div>
+        <div class="label">d</div><input id="d" type="number" step="0.05" value="1">
+      </div>
+    </div>
+  </div>
+
+  <div class="buttons">
+    <button onclick="setM(1,0,0,1)">I</button>
+    <button onclick="setM(1,1,0,1)">x shear</button>
+    <button onclick="setM(1,0,1,1)">y shear</button>
+    <button onclick="setM(1,.25,.8,1)">example</button>
+    <button onclick="setM(1.6,-.7,.5,1.3)">generic</button>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Columns</div>
+    <div class="math">
+      <b>u</b> = Aî = <span id="uvec"></span><br>
+      <b>v</b> = Aĵ = <span id="vvec"></span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Area, route 1 &mdash; determinant</div>
+    <div class="heroArea" id="detRead"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Base and height</div>
+    <div class="heroArea" id="projRead"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Area, route 2 &mdash; base &times; height</div>
+    <div class="heroArea" id="areaRead"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Route 3 &mdash; rotate u onto +x</div>
+    <div class="math" style="margin-bottom:8px;">R(&minus;&theta;) =</div>
+    <div id="rMatrix" style="text-align:center;line-height:1.15;margin:4px 0 10px;"></div>
+    <div class="heroArea ghostArea" id="rotRead"></div>
+    <label class="toggle">
+      <input id="showRot" type="checkbox" checked>
+      show rotated view
+    </label>
+  </div>
+</aside>
+
+<main>
+  <canvas id="canvas"></canvas>
+
+  <div class="legend">
+    <div><span class="swatch" style="background:var(--cyan)"></span>u = Aî</div>
+    <div><span class="swatch" style="background:var(--pink)"></span>v = Aĵ</div>
+    <div><span class="swatch" style="background:var(--mint)"></span>parallelogram</div>
+    <div><span class="swatch" style="background:var(--gold)"></span>height h</div>
+    <div><span class="dashbox"></span>rotated view (imagined)</div>
+  </div>
+
+  <div class="topread">
+    det(A) = <span id="detTop"></span><br>
+    area = <span id="absDetTop"></span>
+  </div>
+
+  <div class="viewbtns"><button onclick="refit()">fit</button></div>
+</main>
+</div>
+
+<script>
+const canvas=document.getElementById("canvas");
+const ctx=canvas.getContext("2d");
+const ids=["a","b","c","d"];
+const inputs=Object.fromEntries(ids.map(id=>[id,document.getElementById(id)]));
+const ranges=Object.fromEntries(ids.map(id=>[id,document.getElementById("rng_"+id)]));
+const vals=Object.fromEntries(ids.map(id=>[id,document.getElementById("val_"+id)]));
+
+let scale=85, panX=0, panY=0, autoFit=true;
+let dragging=false, lastX=0, lastY=0;
+
+const add=(u,v)=>[u[0]+v[0],u[1]+v[1]];
+const mul=(k,u)=>[k*u[0],k*u[1]];
+const dot=(u,v)=>u[0]*v[0]+u[1]*v[1];
+const norm=u=>Math.hypot(u[0],u[1]);
+const rot=(u,t)=>[u[0]*Math.cos(t)-u[1]*Math.sin(t),u[0]*Math.sin(t)+u[1]*Math.cos(t)];
+const fmt=x=>Math.abs(x)<1e-10?"0":(+x.toFixed(4)).toString();
+const fmt2=x=>Math.abs(x)<1e-10?"0":(+x.toFixed(2)).toString();
+
+function M(){return ids.map(id=>+inputs[id].value||0)}
+function setM(a,b,c,d){
+  [inputs.a.value,inputs.b.value,inputs.c.value,inputs.d.value]=[a,b,c,d];
+  autoFit=true; draw();
+}
+function refit(){autoFit=true;draw()}
+
+function resizeCanvas(){
+  const dpr=window.devicePixelRatio||1;
+  const w=canvas.clientWidth, h=canvas.clientHeight;
+  const bw=Math.max(1,Math.round(w*dpr)), bh=Math.max(1,Math.round(h*dpr));
+  if(canvas.width!==bw||canvas.height!==bh){canvas.width=bw;canvas.height=bh}
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+function screen(v){
+  return [canvas.clientWidth/2+panX+v[0]*scale, canvas.clientHeight/2+panY-v[1]*scale];
+}
+
+/* ---------------- geometry ---------------- */
+function geom(){
+  const [a,b,c,d]=M();
+  const u=[a,c], v=[b,d], uv=add(u,v);
+  const det=a*d-b*c;
+  const L=norm(u);
+  const theta=L>1e-10?Math.atan2(u[1],u[0]):0;
+  const ru=rot(u,-theta), rv=rot(v,-theta);
+  const orig4=[[0,0],u,uv,v];
+  const rot4=[[0,0],ru,add(ru,rv),rv];
+  const gap=1.15;
+  const maxXo=Math.max(...orig4.map(p=>p[0]),1);
+  const minXr=Math.min(...rot4.map(p=>p[0]),...orig4.map(p=>p[0]));
+  const shift=[maxXo-minXr+gap,0];
+  const phi=(L>1e-10&&norm(v)>1e-10)?Math.atan2(rv[1],rv[0]):0;
+  return {a,b,c,d,u,v,uv,det,L,theta,ru,rv,phi,orig4,rot4,shift};
+}
+
+// The frame must contain BOTH the ghost and the rotated copy, or the ghost
+// gets sliced by the border and reads as a rendering bug.
+function windowBounds(g){
+  const T=q=>add(q,g.shift);
+  const pts=g.rot4.map(T).concat(g.orig4.map(T));
+  const px=v=>Math.max(v/scale,0.05);
+  const padL=px(26), padR=px(26), padT=px(52), padB=px(74);
+  let minX=Math.min(...pts.map(p=>p[0]))-padL;
+  let maxX=Math.max(...pts.map(p=>p[0]))+padR;
+  let minY=Math.min(...pts.map(p=>p[1]),0)-padB;
+  let maxY=Math.max(...pts.map(p=>p[1]),0)+padT;
+  const minW=360/scale, minH=230/scale;
+  if(maxX-minX<minW){const c=(minX+maxX)/2;minX=c-minW/2;maxX=c+minW/2}
+  if(maxY-minY<minH){const c=(minY+maxY)/2;minY=c-minH/2;maxY=c+minH/2}
+  return {minX,maxX,minY,maxY,T};
+}
+
+/* ---------------- primitives ---------------- */
+function clear(){ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight)}
+function line(p,q,stroke="#2a303c",width=1,dash=[]){
+  const A=screen(p),B=screen(q);
+  ctx.save();ctx.strokeStyle=stroke;ctx.lineWidth=width;ctx.setLineDash(dash);
+  ctx.beginPath();ctx.moveTo(...A);ctx.lineTo(...B);ctx.stroke();ctx.restore();
+}
+function sline(A,B,stroke,width=1,dash=[]){
+  ctx.save();ctx.strokeStyle=stroke;ctx.lineWidth=width;ctx.setLineDash(dash);
+  ctx.beginPath();ctx.moveTo(...A);ctx.lineTo(...B);ctx.stroke();ctx.restore();
+}
+function arrow(from,to,stroke,width=3,alpha=1,dash=[]){
+  const s=screen(from), e=screen(to);
+  const dx=e[0]-s[0], dy=e[1]-s[1];
+  if(Math.hypot(dx,dy)<0.5)return;
+  const ang=Math.atan2(dy,dx), L=10;
+  ctx.save();ctx.globalAlpha=alpha;ctx.strokeStyle=stroke;ctx.fillStyle=stroke;ctx.lineWidth=width;
+  ctx.setLineDash(dash);
+  ctx.beginPath();ctx.moveTo(...s);ctx.lineTo(...e);ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.beginPath();ctx.moveTo(...e);
+  ctx.lineTo(e[0]-L*Math.cos(ang-.45),e[1]-L*Math.sin(ang-.45));
+  ctx.lineTo(e[0]-L*Math.cos(ang+.45),e[1]-L*Math.sin(ang+.45));
+  ctx.closePath();ctx.fill();ctx.restore();
+}
+function poly(points,fill,stroke,width=2,dash=[]){
+  ctx.save();ctx.fillStyle=fill;ctx.strokeStyle=stroke;ctx.lineWidth=width;ctx.setLineDash(dash);
+  ctx.beginPath();ctx.moveTo(...screen(points[0]));
+  for(let i=1;i<points.length;i++)ctx.lineTo(...screen(points[i]));
+  ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();
+}
+function arcArrow(center,r,start,end,stroke="#fff6",width=2){
+  const C=screen(center), rr=r*scale;
+  if(Math.abs(end-start)<0.02)return;
+  const ccw=start>end;
+  ctx.save();ctx.strokeStyle=stroke;ctx.fillStyle=stroke;ctx.lineWidth=width;
+  ctx.beginPath();ctx.arc(C[0],C[1],rr,start,end,ccw);ctx.stroke();
+  const ex=C[0]+rr*Math.cos(end), ey=C[1]+rr*Math.sin(end), L=9;
+  const tang=end+(ccw?-Math.PI/2:Math.PI/2);
+  ctx.beginPath();ctx.moveTo(ex,ey);
+  ctx.lineTo(ex-L*Math.cos(tang-.55),ey-L*Math.sin(tang-.55));
+  ctx.lineTo(ex-L*Math.cos(tang+.55),ey-L*Math.sin(tang+.55));
+  ctx.closePath();ctx.fill();ctx.restore();
+}
+function arcPlain(center,r,start,end,stroke,width=1.5){
+  const C=screen(center), rr=r*scale;
+  ctx.save();ctx.strokeStyle=stroke;ctx.lineWidth=width;
+  ctx.beginPath();ctx.arc(C[0],C[1],rr,start,end,start>end);ctx.stroke();ctx.restore();
+}
+function text(p,str,color="#dce3ec",size=12,dx=0,dy=0,weight="",align="center"){
+  const s=screen(p);
+  ctx.save();ctx.fillStyle=color;
+  ctx.font=`${weight} ${size}px ui-monospace,SFMono-Regular,Menlo,monospace`;
+  ctx.textAlign=align;ctx.textBaseline="middle";
+  ctx.fillText(str,s[0]+dx,s[1]+dy);ctx.restore();
+}
+function stext(x,y,str,color,size=11,weight="",align="left"){
+  ctx.save();ctx.fillStyle=color;
+  ctx.font=`${weight} ${size}px ui-monospace,SFMono-Regular,Menlo,monospace`;
+  ctx.textAlign=align;ctx.textBaseline="middle";
+  ctx.fillText(str,x,y);ctx.restore();
+}
+function measure(str,size,weight){
+  ctx.save();ctx.font=`${weight} ${size}px ui-monospace,SFMono-Regular,Menlo,monospace`;
+  const w=ctx.measureText(str).width;ctx.restore();return w;
+}
+// Text that refuses to leave the frame.
+function ftext(x,y,str,color,size,weight,align,lo,hi){
+  const w=measure(str,size,weight);
+  let left = align==="center"?x-w/2 : align==="right"?x-w : x;
+  if(left+w>hi)left=hi-w;
+  if(left<lo)left=lo;
+  stext(left,y,str,color,size,weight,"left");
+}
+function roundRectPath(x,y,w,h,r){
+  ctx.beginPath();ctx.moveTo(x+r,y);
+  ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);
+  ctx.closePath();
+}
+function drawGrid(){
+  const w=canvas.clientWidth,h=canvas.clientHeight;
+  const x0=(-w/2-panX)/scale, x1=(w/2-panX)/scale;
+  const y0=(panY-h/2)/scale,  y1=(panY+h/2)/scale;
+  const step=scale<32?2:1;
+  for(let x=Math.floor(x0/step)*step;x<=x1;x+=step)line([x,y0],[x,y1],"#1d222b",1);
+  for(let y=Math.floor(y0/step)*step;y<=y1;y+=step)line([x0,y],[x1,y],"#1d222b",1);
+  line([x0,0],[x1,0],"#687386",1.5);
+  line([0,y0],[0,y1],"#687386",1.5);
+}
+
+/* ---------------- viewport ---------------- */
+function sceneBounds(g,showRot,win){
+  let pts=[[0,0],[1,0],[0,1]].concat(g.orig4);
+  if(showRot&&win)pts=pts.concat([[win.minX,win.minY],[win.maxX,win.maxY]]);
+  const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);
+  return {minX:Math.min(...xs),maxX:Math.max(...xs),minY:Math.min(...ys),maxY:Math.max(...ys)};
+}
+function applyFit(b){
+  const spanX=Math.max(b.maxX-b.minX,0.5), spanY=Math.max(b.maxY-b.minY,0.5);
+  const mx=spanX*0.07+0.2, my=spanY*0.07+0.2;
+  const w=canvas.clientWidth,h=canvas.clientHeight;
+  scale=Math.max(10,Math.min(220,Math.min(w/(spanX+2*mx),h/(spanY+2*my))));
+  panX=-((b.minX+b.maxX)/2)*scale; panY=((b.minY+b.maxY)/2)*scale;
+}
+// Window padding is in pixels, so fitting depends on scale: settle it in two passes.
+function fitTwice(g,showRot){
+  applyFit(sceneBounds(g,showRot,showRot?windowBounds(g):null));
+  applyFit(sceneBounds(g,showRot,showRot?windowBounds(g):null));
+}
+function offscreen(b){
+  const w=canvas.clientWidth,h=canvas.clientHeight,m=14;
+  const p=screen([b.minX,b.maxY]), q=screen([b.maxX,b.minY]);
+  if(p[0]<m||p[1]<m||q[0]>w-m||q[1]>h-m)return true;
+  return Math.max((q[0]-p[0])/w,(q[1]-p[1])/h)<0.25;  // drifted too small to read
+}
+
+/* ---------------- the imagined window ---------------- */
+function drawRotWindow(g,win){
+  const {T}=win;
+  const {ru,rv,L,theta,phi,u,v}=g;
+  const h=Math.abs(rv[1]);
+  const TL=screen([win.minX,win.maxY]), BR=screen([win.maxX,win.minY]);
+  const x=TL[0], y=TL[1], w=BR[0]-x, hh=BR[1]-y;
+  const lo=x+13, hi=x+w-13;
+
+  ctx.save();
+  roundRectPath(x,y,w,hh,12);
+  ctx.fillStyle="#0a0e17f2";ctx.fill();
+  ctx.save();ctx.clip();
+
+  // Its own frame of reference.
+  const gx0=Math.floor(win.minX-g.shift[0]), gx1=Math.ceil(win.maxX-g.shift[0]);
+  const gy0=Math.floor(win.minY), gy1=Math.ceil(win.maxY);
+  for(let i=gx0;i<=gx1;i++)line(T([i,gy0]),T([i,gy1]),"#ffffff0a",1);
+  for(let j=gy0;j<=gy1;j++)line(T([gx0,j]),T([gx1,j]),"#ffffff0a",1);
+  line([win.minX,0],[win.maxX,0],"#ffffff3a",1.5);
+  line([T([0,0])[0],win.minY],[T([0,0])[0],win.maxY],"#ffffff18",1.2);
+
+  // Where it came from.
+  poly(g.orig4.map(T),"#ffffff05","#ffffff16",1.2,[5,6]);
+  arrow(T([0,0]),T(u),"#ffffff1c",1.6,1,[5,5]);
+  arcArrow(T([0,0]),Math.max(.4,Math.min(1.0,L*.34)),-theta,0,"#ffffff44",1.8);
+
+  // The rotated parallelogram.
+  poly(g.rot4.map(T),"#a7f3d012","#a7f3d055",1.6,[4,4]);
+
+  // Base: it is lying on the axis, so its length is the whole story.
+  const bA=screen(T([0,0])), bB=screen(T(ru)), yB=bA[1]+24;
+  sline([bA[0],bA[1]+7],[bA[0],yB+5],"#72d6ff55",1);
+  sline([bB[0],bB[1]+7],[bB[0],yB+5],"#72d6ff55",1);
+  sline([bA[0],yB],[bB[0],yB],"#72d6ffcc",1.5);
+  ftext((bA[0]+bB[0])/2,yB+17,`base = |u| = ${fmt2(L)}`,"#72d6ff",11,"bold","center",lo,hi);
+
+  arrow(T([0,0]),T(ru),"#72d6ffdd",3);
+  arrow(T([0,0]),T(rv),"#f2a7d0dd",3);
+  text(T(mul(.58,ru)),"R Aî","#72d6ff",12,0,-14,"bold");
+
+  // phi, parked low near the axis so it stays clear of the height callout.
+  const r=Math.max(.34,Math.min(.85,Math.min(L,norm(v))*.3));
+  if(Math.abs(phi)>0.05){
+    arcPlain(T([0,0]),r,0,-phi,"#f5c04a80",1.5);
+    const C=screen(T([0,0])), aLbl=-phi*0.22;
+    stext(C[0]+r*scale*1.42*Math.cos(aLbl),C[1]+r*scale*1.42*Math.sin(aLbl),"φ","#f5c04a",13,"bold","center");
+  }
+
+  // Height: the y-coordinate, handed over for free.
+  line(T(rv),T([rv[0],0]),"#f5c04a",2.5,[6,5]);
+  if(h>1e-9){
+    const s=Math.min(.14,16/scale);
+    const sx=(rv[0]>=0?-1:1)*s, sy=(rv[1]>=0?1:-1)*s;
+    const foot=T([rv[0],0]);
+    line(add(foot,[sx,0]),add(foot,[sx,sy]),"#f5c04a99",1.2);
+    line(add(foot,[sx,sy]),add(foot,[0,sy]),"#f5c04a99",1.2);
+  }
+  const hTop=screen(T([rv[0],rv[1]*0.78]));
+  ftext(hTop[0]+13,hTop[1]-8,`h = |v| sin φ = ${fmt2(h)}`,"#f5c04a",11,"bold","left",lo,hi);
+  ftext(hTop[0]+13,hTop[1]+7,"= y-component of R Aĵ","#f5c04a8c",10,"","left",lo,hi);
+  const pinkTip=screen(T(rv));
+  ftext(pinkTip[0]-8,pinkTip[1]-13,"R Aĵ","#f2a7d0",12,"bold","right",lo,hi);
+
+  g.rot4.map(T).forEach(p=>{
+    const s=screen(p);ctx.save();ctx.fillStyle="#ffffff77";
+    ctx.beginPath();ctx.arc(s[0],s[1],2.5,0,Math.PI*2);ctx.fill();ctx.restore();
+  });
+
+  // Reserved bands: caption on top, result on the bottom.
+  stext(x+15,y+19,"IMAGINED — rotate until u lies flat","#ffffff66",10,"bold","left");
+  stext(x+15,y+33,"same parallelogram, same area","#ffffff3d",10,"","left");
+  const res=`A = base × h = ${fmt2(L*h)}`;
+  const note="flat on the axis — just read it off";
+  const yBot=y+hh-17;
+  ftext(x+w-15,yBot,res,"#a7f3d0cc",11,"bold","right",lo,hi);
+  if(measure(note,10,"")+measure(res,11,"bold")+50<w)
+    stext(x+15,yBot,note,"#72d6ff70",10,"","left");
+
+  ctx.restore();
+  roundRectPath(x,y,w,hh,12);
+  ctx.setLineDash([8,6]);ctx.strokeStyle="#ffffff2b";ctx.lineWidth=1.5;ctx.stroke();
+  ctx.restore();
+
+  const from=[Math.max(...g.orig4.map(p=>p[0]))+0.12,0], to=[win.minX-0.06,0];
+  if(to[0]>from[0]){
+    arrow(from,to,"#ffffff2e",1.6,1,[5,5]);
+    const m=screen(mul(.5,add(from,to)));
+    stext(m[0],m[1]-13,"R(−θ)","#ffffff5c",11,"bold","center");
+  }
+}
+
+/* ---------------- main draw ---------------- */
+function draw(){
+  resizeCanvas();
+  syncControls();
+  const g=geom();
+  const showRot=document.getElementById("showRot").checked && g.L>1e-10;
+
+  let win=showRot?windowBounds(g):null;
+  if(autoFit||offscreen(sceneBounds(g,showRot,win))){
+    fitTwice(g,showRot);
+    win=showRot?windowBounds(g):null;
+    autoFit=false;   // one-shot: the view now stays put until it has to move
+  }
+
+  const {a,b,c,d,u,v,det,L,theta,rv,phi}=g;
+  clear();drawGrid();
+  if(showRot)drawRotWindow(g,win);
+
+  arrow([0,0],[1,0],"#6f7784",1.5,.35);
+  arrow([0,0],[0,1],"#6f7784",1.5,.35);
+
+  poly(g.orig4,"#a7f3d01f","#a7f3d0",2);
+  line(u,[u[0],0],"#72d6ff55",1.5,[5,5]);
+  line(v,[v[0],0],"#f2a7d055",1.5,[5,5]);
+  arrow([0,0],u,"#72d6ff",4);
+  arrow([0,0],v,"#f2a7d0",4);
+  text(u,"u","#72d6ff",13,14,-10,"bold");
+  text(v,"v","#f2a7d0",13,14,-10,"bold");
+
+  const uu=dot(u,u);
+  const proj=uu?mul(dot(v,u)/uu,u):[0,0];
+  line(v,proj,"#f5c04a",3,[7,5]);
+  if(L>1e-9){
+    const eh=[u[0]/L,u[1]/L], ev=[-eh[1],eh[0]], s=Math.min(.13,14/scale);
+    const p1=add(proj,mul(s,eh)),p2=add(p1,mul(s,ev)),p3=add(proj,mul(s,ev));
+    line(p1,p2,"#f5c04a",1.5);line(p2,p3,"#f5c04a",1.5);
+    text(mul(.5,add(v,proj)),"h","#f5c04a",12,16,0,"bold");
+  }
+  ctx.save();ctx.fillStyle="#f5c04a";ctx.beginPath();
+  ctx.arc(...screen(proj),4.5,0,Math.PI*2);ctx.fill();ctx.restore();
+
+  /* ---------------- readouts ---------------- */
+  const projLen=L?dot(v,u)/L:0;
+  const hPyth=Math.sqrt(Math.max(0,dot(v,v)-projLen*projLen));
+  const hRot=Math.abs(rv[1]);
+  const area1=Math.abs(det), area2=L*hPyth;
+
+  document.getElementById("uvec").textContent=`(${fmt(u[0])}, ${fmt(u[1])})`;
+  document.getElementById("vvec").textContent=`(${fmt(v[0])}, ${fmt(v[1])})`;
+
+  document.getElementById("detRead").innerHTML=
+    `<div class="steps">`+
+      `<span class="k">det A =</span> ad &minus; bc<br>`+
+      `<span class="k">      =</span> (${fmt(a)})(${fmt(d)}) &minus; (${fmt(b)})(${fmt(c)})<br>`+
+      `<span class="k">      =</span> ${fmt(a*d)} &minus; ${fmt(b*c)} = ${fmt(det)}`+
+    `</div><div class="rule"></div>`+
+    `<div class="areaLine">A = |det A| = <b>${fmt(area1)}</b></div>`;
+
+  document.getElementById("projRead").innerHTML=
+    `<div class="steps">`+
+      `<span class="k">base  =</span> |u| = ${fmt(L)}<br>`+
+      `<span class="k">proj  =</span> (v&middot;u)/|u| = ${fmt(projLen)}<br>`+
+      `<span class="k">|v|   =</span> ${fmt(norm(v))}`+
+    `</div><div class="rule"></div>`+
+    `<div class="areaLine">h = &radic;(|v|&sup2; &minus; proj&sup2;) = <b>${fmt(hPyth)}</b></div>`;
+
+  const agree=Math.abs(area1-area2)<1e-6;
+  document.getElementById("areaRead").innerHTML=
+    `<div class="steps">`+
+      `<span class="k">A =</span> base &times; height<br>`+
+      `<span class="k">  =</span> |u| &middot; h<br>`+
+      `<span class="k">  =</span> ${fmt(L)} &times; ${fmt(hPyth)}`+
+    `</div><div class="rule"></div>`+
+    `<div class="areaLine">A = |u|h = <b>${fmt(area2)}</b></div>`+
+    `<div class="match${agree?"":" mismatch"}">`+
+      (agree?`= |det A| = ${fmt(area1)} &nbsp;&check;`:`vs |det A| = ${fmt(area1)}`)+`</div>`;
+
+  const co=Math.cos(theta), si=Math.sin(theta);
+  document.getElementById("rMatrix").innerHTML=
+    `<div class="rmat">
+      <div class="rmatCell"><div class="symbol">cos &theta;</div><div class="num">${fmt(co)}</div></div>
+      <div class="rmatCell"><div class="symbol">sin &theta;</div><div class="num">${fmt(si)}</div></div>
+      <div class="rmatCell"><div class="symbol">&minus;sin &theta;</div><div class="num">${fmt(-si)}</div></div>
+      <div class="rmatCell"><div class="symbol">cos &theta;</div><div class="num">${fmt(co)}</div></div>
+    </div>`;
+
+  const rotAgree=Math.abs(L*hRot-area1)<1e-6;
+  document.getElementById("rotRead").innerHTML=
+    `<div class="steps">`+
+      `<span class="k">&theta;     =</span> atan2(c,a) = ${fmt(theta*180/Math.PI)}&deg;<br>`+
+      `<span class="k">R A&icirc;  =</span> (${fmt(L)}, 0) &nbsp;<span class="k">&rarr; base = |u|</span><br>`+
+      `<span class="k">R A&#309;  =</span> (${fmt(rv[0])}, ${fmt(rv[1])})<br>`+
+      `<span class="k">&phi;     =</span> ${fmt(phi*180/Math.PI)}&deg; &nbsp;<span class="k">(angle u&rarr;v)</span>`+
+    `</div><div class="rule"></div>`+
+    `<div class="areaLine">h = |v| sin &phi; = <b>${fmt(hRot)}</b></div>`+
+    `<div class="areaSub">the y-component of R A&#309; &mdash; no square roots</div>`+
+    `<div class="match${rotAgree?"":" mismatch"}">A = |u| &middot; h = ${fmt(L*hRot)}${rotAgree?" &nbsp;&check;":""}</div>`;
+
+  document.getElementById("detTop").textContent=fmt(det);
+  document.getElementById("absDetTop").textContent=fmt(area1);
+}
+
+/* ---------------- controls ---------------- */
+function syncControls(){
+  for(const id of ids){
+    const x=+inputs[id].value||0;
+    if(document.activeElement!==ranges[id])
+      ranges[id].value=Math.max(-5,Math.min(5,x));
+    vals[id].textContent=fmt2(x);
+  }
+}
+for(const id of ids){
+  // Slider drags the number; typing drags the slider. Neither forces a refit —
+  // the view only rescales if the figure would otherwise wander off.
+  ranges[id].addEventListener("input",()=>{
+    inputs[id].value=(+ranges[id].value).toFixed(2).replace(/\.?0+$/,"")||"0";
+    draw();
+  });
+  inputs[id].addEventListener("input",draw);
+}
+document.getElementById("showRot").addEventListener("change",()=>{autoFit=true;draw()});
+
+canvas.addEventListener("mousedown",e=>{dragging=true;lastX=e.clientX;lastY=e.clientY});
+window.addEventListener("mouseup",()=>dragging=false);
+window.addEventListener("mousemove",e=>{
+  if(!dragging)return;
+  autoFit=false;
+  panX+=e.clientX-lastX; panY+=e.clientY-lastY;
+  lastX=e.clientX; lastY=e.clientY; draw();
+});
+canvas.addEventListener("wheel",e=>{
+  e.preventDefault();
+  autoFit=false;
+  scale=Math.max(10,Math.min(220,scale*(e.deltaY<0?1.1:.9)));
+  draw();
+},{passive:false});
+window.addEventListener("resize",draw);
+draw();
+</script>
+</body>
+</html>

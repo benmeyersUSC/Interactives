@@ -1,0 +1,9 @@
+title: Interactives
+tagline: LLM-assisted interactive visualizations you may enjoy
+kind: gallery
+order: 1
+
+# Every .html at the root becomes an exhibit. Titles come from each page's own
+# <title>, so dropping a file in is the whole workflow -- no edit here.
+# Add an entry below only to override a title or add a description.
+apps_glob: "*.html"
