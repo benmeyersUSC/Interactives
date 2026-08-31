@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Likelihood bench</title>
+<style>
+:root{
+  --paper:#E4E9ED;
+  --panel:#F6F8F9;
+  --ink:#16283A;
+  --ink-soft:#5A6C7C;
+  --rule:#C2CDD6;
+  --truth:#B0176A;
+  --est:#1B6FA8;
+  --mle:#8A6A00;
+  --serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:var(--sans); font-size:15px; line-height:1.55;
+}
+.wrap{max-width:1180px; margin:0 auto; padding:28px 20px 80px}
+
+/* ---------- masthead ---------- */
+header{border-bottom:2px solid var(--ink); padding-bottom:18px; margin-bottom:26px}
+h1{
+  font-family:var(--serif); font-weight:400; font-size:2.55rem;
+  letter-spacing:-.015em; margin:0 0 .15em; line-height:1.05;
+}
+.standfirst{max-width:64ch; color:var(--ink-soft); margin:0 0 20px; font-size:1.02rem}
+.readings{display:flex; flex-wrap:wrap; gap:14px; margin-bottom:20px}
+.reading{
+  flex:1 1 300px; border-left:3px solid var(--rule); padding:2px 0 2px 14px;
+}
+.reading .lede{font-family:var(--serif); font-size:1.12rem; display:block; margin-bottom:2px}
+.reading p{margin:0; color:var(--ink-soft); font-size:.93rem; max-width:46ch}
+.key{display:flex; flex-wrap:wrap; gap:6px 26px; font-size:.9rem}
+.key span{display:flex; align-items:center; gap:8px; color:var(--ink-soft)}
+.swatch{width:22px; height:3px; border-radius:2px; flex:none}
+.swatch.dash{height:0; border-top:3px dashed currentColor; width:22px}
+
+/* ---------- bays ---------- */
+details{
+  background:var(--panel); border:1px solid var(--rule);
+  border-radius:3px; margin-bottom:10px;
+}
+details[open]{border-color:var(--ink)}
+summary{
+  cursor:pointer; padding:13px 16px; display:flex; align-items:baseline;
+  gap:14px; list-style:none; flex-wrap:wrap;
+}
+summary::-webkit-details-marker{display:none}
+summary:focus-visible{outline:2px solid var(--est); outline-offset:-2px}
+.chev{
+  flex:none; width:9px; height:9px; border-right:2px solid var(--ink-soft);
+  border-bottom:2px solid var(--ink-soft); transform:rotate(-45deg) translate(-2px,-2px);
+  transition:transform .16s ease;
+}
+details[open] .chev{transform:rotate(45deg) translate(-1px,-3px)}
+.dname{font-family:var(--serif); font-size:1.25rem}
+.dstory{color:var(--ink-soft); font-size:.92rem}
+.bay{
+  display:grid; grid-template-columns:minmax(280px,340px) 1fr;
+  gap:26px; padding:4px 16px 20px; border-top:1px solid var(--rule); margin-top:2px;
+}
+@media(max-width:900px){ .bay{grid-template-columns:1fr; gap:18px} }
+
+/* ---------- maths column ---------- */
+.maths{font-family:var(--serif); font-size:1rem; padding-top:16px}
+.maths h3{
+  font-family:var(--sans); font-size:.82rem; font-weight:600; letter-spacing:.02em;
+  color:var(--ink-soft); margin:18px 0 5px;
+}
+.maths h3:first-child{margin-top:0}
+.eq{margin:0; overflow-x:auto; overflow-y:hidden; padding-bottom:2px; line-height:1.9}
+.note{font-family:var(--sans); font-size:.9rem; color:var(--ink-soft); max-width:44ch}
+.note em{color:var(--ink); font-style:normal; border-bottom:1px solid var(--rule)}
+.frac{display:inline-flex; flex-direction:column; vertical-align:-.55em; text-align:center; margin:0 .18em}
+.frac > span:first-child{padding:0 .3em}
+.frac > span:last-child{border-top:1px solid currentColor; padding:0 .3em}
+.tt{font-family:var(--mono); font-size:.92em}
+i.v{font-style:italic}
+
+/* ---------- controls ---------- */
+.rig{padding-top:16px}
+fieldset{border:1px solid var(--rule); border-radius:3px; padding:10px 14px 14px; margin:0 0 14px}
+legend{font-size:.82rem; font-weight:600; color:var(--ink-soft); padding:0 6px}
+fieldset.truth{border-color:color-mix(in srgb, var(--truth) 40%, var(--rule))}
+fieldset.truth legend{color:var(--truth)}
+fieldset.est{border-color:color-mix(in srgb, var(--est) 45%, var(--rule))}
+fieldset.est legend{color:var(--est)}
+.ctl{display:grid; grid-template-columns:auto 1fr 76px; align-items:center; gap:10px; margin-top:8px}
+.ctl label{font-family:var(--serif); font-size:1.05rem; min-width:2.2em}
+input[type=range]{width:100%; accent-color:var(--est); margin:0}
+fieldset.truth input[type=range]{accent-color:var(--truth)}
+input[type=number]{
+  width:100%; font-family:var(--mono); font-size:.86rem; padding:3px 5px;
+  border:1px solid var(--rule); border-radius:2px; background:#fff; color:var(--ink);
+}
+input:focus-visible{outline:2px solid var(--est); outline-offset:1px}
+.row{display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:10px}
+button{
+  font-family:var(--sans); font-size:.88rem; padding:5px 12px; cursor:pointer;
+  border:1px solid var(--ink); background:transparent; color:var(--ink); border-radius:2px;
+}
+button:hover{background:var(--ink); color:var(--panel)}
+button.gold{border-color:var(--mle); color:var(--mle)}
+button.gold:hover{background:var(--mle); color:#fff}
+.seg{display:inline-flex; border:1px solid var(--rule); border-radius:2px; overflow:hidden}
+.seg button{border:0; border-radius:0; font-family:var(--serif); font-size:1rem; padding:4px 14px}
+.seg button[aria-pressed=true]{background:var(--est); color:#fff}
+.stat{
+  font-family:var(--mono); font-size:.83rem; color:var(--ink-soft);
+  background:#fff; border:1px solid var(--rule); border-radius:2px;
+  padding:7px 10px; margin-top:10px; line-height:1.7; overflow-x:auto; white-space:nowrap;
+}
+.stat b{color:var(--ink); font-weight:600}
+
+/* ---------- plots ---------- */
+.grid{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+@media(max-width:620px){ .grid{grid-template-columns:1fr} }
+figure{margin:0; background:#fff; border:1px solid var(--rule); border-radius:3px; padding:8px}
+figure.drag{cursor:ew-resize}
+figcaption{
+  font-family:var(--serif); font-size:.95rem; padding:0 2px 6px;
+  display:flex; justify-content:space-between; gap:8px; align-items:baseline;
+}
+figcaption small{font-family:var(--sans); font-size:.76rem; color:var(--ink-soft)}
+canvas{display:block; width:100%; height:auto; touch-action:pan-y}
+footer{margin-top:36px; padding-top:16px; border-top:1px solid var(--rule); color:var(--ink-soft); font-size:.88rem; max-width:70ch}
+@media(prefers-reduced-motion:reduce){ *{transition:none !important} }
+</style>
+
+<div class="wrap">
+<header>
+  <h1>Likelihood bench</h1>
+  <p class="standfirst">One expression, <i>f</i>(<i>x</i>&nbsp;|&nbsp;θ), read two ways. Fix θ and it describes data. Fix the data and it ranks θ. Everything below is that sentence made draggable.</p>
+  <div class="readings">
+    <div class="reading"><span class="lede"><i>f</i>(<i>x</i> | θ) with θ fixed</span>
+      <p>A distribution over outcomes. Sums or integrates to 1 across <i>x</i>.</p></div>
+    <div class="reading"><span class="lede"><i>L</i>(θ) = <i>f</i>(<i>x</i> | θ) with <i>x</i> fixed</span>
+      <p>A ranking of candidate θ. Normalises to nothing in particular, and never needs to.</p></div>
+  </div>
+  <div class="key">
+    <span><i class="swatch" style="background:var(--truth)"></i>the θ that generated the data</span>
+    <span><i class="swatch" style="background:var(--est)"></i>your candidate θ̂, on the slider</span>
+    <span><i class="swatch" style="background:var(--mle)"></i>the maximiser the data picks out</span>
+  </div>
+</header>
+<div id="bays"></div>
+<footer>Datasets are drawn from the carmine parameters with a seeded generator, then held fixed — that is what makes <i>L</i> a function of θ alone. Drag directly on the lower three plots to move θ̂.</footer>
+</div>
+
+<script>
+"use strict";
+
+/* ============================ small numerics ============================ */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const LGC=[0,0,0.6931471805599453,1.791759469228055,3.1780538303479458,4.787491742782046,6.579251212010101,8.525161361065415,10.60460290274525,12.801827480081469];
+function lgamma(z){ // Lanczos
+  if(z<0.5) return Math.log(Math.PI/Math.sin(Math.PI*z))-lgamma(1-z);
+  z-=1; const g=7, c=[0.99999999999980993,676.5203681218851,-1259.1392167224028,771.32342877765313,
+    -176.61502916214059,12.507343278686905,-0.13857109526572012,9.9843695780195716e-6,1.5056327351493116e-7];
+  let x=c[0]; for(let i=1;i<g+2;i++) x+=c[i]/(z+i);
+  const t=z+g+0.5;
+  return 0.5*Math.log(2*Math.PI)+(z+0.5)*Math.log(t)-t+Math.log(x);
+}
+function logFact(n){ return n<10 ? LGC[n] : lgamma(n+1); }
+function logChoose(n,k){ if(k<0||k>n) return -Infinity; return logFact(n)-logFact(k)-logFact(n-k); }
+const sum=a=>a.reduce((s,v)=>s+v,0);
+function quantile(sorted,q){ if(!sorted.length) return 0; const i=(sorted.length-1)*q, lo=Math.floor(i), hi=Math.ceil(i);
+  return sorted[lo]+(sorted[hi]-sorted[lo])*(i-lo); }
+function fmt(v){
+  if(!isFinite(v)) return v>0?"+\u221E":"\u2212\u221E";
+  const a=Math.abs(v);
+  if(a!==0 && (a<1e-3||a>=1e5)) return v.toExponential(2);
+  return (Math.round(v*1e4)/1e4).toString();
+}
+
+/* ============================ plotting ============================ */
+const CSS=getComputedStyle(document.documentElement);
+const COL={truth:CSS.getPropertyValue('--truth').trim(), est:CSS.getPropertyValue('--est').trim(),
+  mle:CSS.getPropertyValue('--mle').trim(), ink:CSS.getPropertyValue('--ink').trim(),
+  soft:CSS.getPropertyValue('--ink-soft').trim(), rule:CSS.getPropertyValue('--rule').trim()};
+const PAD={l:52,r:12,t:10,b:30};
+
+function niceTicks(lo,hi,n){
+  if(!(isFinite(lo)&&isFinite(hi))||hi<=lo) return [lo];
+  const raw=(hi-lo)/n, mag=Math.pow(10,Math.floor(Math.log10(raw))), norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  if(!isFinite(step)||step<=0) return [lo];
+  const out=[]; for(let t=Math.ceil(lo/step)*step; t<=hi+step*1e-9 && out.length<40; t+=step)
+    out.push(Math.abs(t)<step*1e-9?0:t);
+  return out;
+}
+function tickLabel(v){ const a=Math.abs(v);
+  if(a!==0&&(a<1e-3||a>=1e5)) return v.toExponential(0);
+  return (Math.round(v*1000)/1000).toString(); }
+
+function drawPlot(cv,S){
+  const dpr=window.devicePixelRatio||1;
+  const W=cv.clientWidth||320, H=Math.round(W*0.68);
+  cv.width=W*dpr; cv.height=H*dpr;
+  cv.style.height=H+"px";
+  const g=cv.getContext("2d");
+  g.setTransform(dpr,0,0,dpr,0,0);
+  g.clearRect(0,0,W,H);
+
+  let [x0,x1]=S.xd, [y0,y1]=S.yd;
+  if(!isFinite(x0)||!isFinite(x1)||x1<=x0){x0=0;x1=1}
+  if(!isFinite(y0)||!isFinite(y1)||y1<=y0){y0=0;y1=1}
+  const px=v=>PAD.l+(v-x0)/(x1-x0)*(W-PAD.l-PAD.r);
+  const py=v=>H-PAD.b-(v-y0)/(y1-y0)*(H-PAD.t-PAD.b);
+  const inner={x:PAD.l,y:PAD.t,w:W-PAD.l-PAD.r,h:H-PAD.t-PAD.b};
+
+  // grid + ticks
+  g.font="10px "+CSS.getPropertyValue('--sans');
+  g.strokeStyle=COL.rule; g.fillStyle=COL.soft; g.lineWidth=1;
+  for(const t of niceTicks(x0,x1,5)){ const X=Math.round(px(t))+.5;
+    g.globalAlpha=.55; g.beginPath(); g.moveTo(X,PAD.t); g.lineTo(X,H-PAD.b); g.stroke(); g.globalAlpha=1;
+    g.textAlign="center"; g.textBaseline="top"; g.fillText(tickLabel(t),X,H-PAD.b+5); }
+  for(const t of niceTicks(y0,y1,4)){ const Y=Math.round(py(t))+.5;
+    g.globalAlpha=.55; g.beginPath(); g.moveTo(PAD.l,Y); g.lineTo(W-PAD.r,Y); g.stroke(); g.globalAlpha=1;
+    g.textAlign="right"; g.textBaseline="middle"; g.fillText(tickLabel(t),PAD.l-6,Y); }
+
+  g.save(); g.beginPath(); g.rect(inner.x,inner.y,inner.w,inner.h); g.clip();
+
+  // shaded regions (x-intervals)
+  for(const s of S.shades||[]){
+    g.fillStyle=s.color; g.globalAlpha=s.alpha??.09;
+    g.fillRect(px(s.from),PAD.t,px(s.to)-px(s.from),inner.h); g.globalAlpha=1;
+    if(s.label){ g.fillStyle=s.color; g.globalAlpha=.85; g.textAlign="center"; g.textBaseline="top";
+      g.font="10px "+CSS.getPropertyValue('--sans');
+      const cx=(Math.max(px(s.from),inner.x)+Math.min(px(s.to),inner.x+inner.w))/2;
+      g.fillText(s.label,cx,PAD.t+4); g.globalAlpha=1; }
+  }
+  // zero line
+  if(S.zeroLine && y0<0 && y1>0){ g.strokeStyle=COL.soft; g.setLineDash([4,3]); g.lineWidth=1;
+    g.beginPath(); const Y=Math.round(py(0))+.5; g.moveTo(PAD.l,Y); g.lineTo(W-PAD.r,Y); g.stroke(); g.setLineDash([]); }
+
+  // bars (histogram / pmf stems)
+  for(const b of S.bars||[]){
+    g.fillStyle=b.color; g.globalAlpha=b.alpha??1;
+    for(const r of b.data){ const X=px(r.x0), Xw=Math.max(1,px(r.x1)-px(r.x0));
+      const Y=py(r.y), Hh=py(0)-py(r.y); if(r.y<=0) continue;
+      g.fillRect(X+(b.inset||0), Y, Math.max(1,Xw-2*(b.inset||0)), Hh); }
+    g.globalAlpha=1;
+  }
+  // vertical markers
+  for(const v of S.vlines||[]){
+    g.strokeStyle=v.color; g.lineWidth=v.width??1.5;
+    if(v.dash) g.setLineDash(v.dash);
+    g.beginPath(); const X=px(v.at); g.moveTo(X,PAD.t); g.lineTo(X,H-PAD.b); g.stroke(); g.setLineDash([]);
+  }
+  // line series
+  for(const s of S.lines||[]){
+    g.strokeStyle=s.color; g.lineWidth=s.width??2; if(s.dash) g.setLineDash(s.dash);
+    g.beginPath(); let pen=false;
+    for(const p of s.data){
+      if(p===null||!isFinite(p[1])){pen=false;continue}
+      const X=px(p[0]),Y=py(p[1]);
+      if(!pen){g.moveTo(X,Y);pen=true}else g.lineTo(X,Y);
+    }
+    g.stroke(); g.setLineDash([]);
+  }
+  // stems (discrete pmf)
+  for(const s of S.stems||[]){
+    g.strokeStyle=s.color; g.fillStyle=s.color; g.lineWidth=s.width??2;
+    for(const p of s.data){ if(!isFinite(p[1])) continue;
+      g.beginPath(); g.moveTo(px(p[0]),py(0)); g.lineTo(px(p[0]),py(p[1])); g.stroke();
+      g.beginPath(); g.arc(px(p[0]),py(p[1]),2.6,0,7); g.fill(); }
+  }
+  // points
+  for(const p of S.points||[]){
+    if(!isFinite(p.x)||!isFinite(p.y)) continue;
+    g.fillStyle="#fff"; g.strokeStyle=p.color; g.lineWidth=2.2;
+    g.beginPath(); g.arc(px(p.x),py(p.y),4.6,0,7); g.fill(); g.stroke();
+  }
+  g.restore();
+
+  // frame + axis titles
+  g.strokeStyle=COL.rule; g.lineWidth=1;
+  g.strokeRect(PAD.l+.5,PAD.t+.5,inner.w-1,inner.h-1);
+  g.fillStyle=COL.soft; g.font="italic 11px "+CSS.getPropertyValue('--serif');
+  if(S.xlab){ g.textAlign="right"; g.textBaseline="bottom"; g.fillText(S.xlab,W-PAD.r,H-2); }
+  if(S.ylab){ g.save(); g.translate(11,PAD.t+4); g.rotate(-Math.PI/2);
+    g.textAlign="right"; g.textBaseline="top"; g.fillText(S.ylab,0,0); g.restore(); }
+  cv._px=px; cv._x0=x0; cv._x1=x1;
+}
+
+/* ============================ distributions ============================ */
+const F=(a,b)=>`<span class="frac"><span>${a}</span><span>${b}</span></span>`;
+const S_="<i class='v'>S</i>", XB="<i class='v'>x&#772;</i>";
+
+const DISTS=[
+{
+  id:"bernoulli", name:"Bernoulli(<i class='v'>p</i>)",
+  story:"one flip of a bent coin \u2014 a single yes/no trial",
+  discrete:true, free:["p"],
+  params:[{k:"p",lab:"p",min:.01,max:.99,step:.01,def:.65,hmin:.005,hmax:.995,hstep:.005}],
+  sample:(P,r)=> r()<P.p?1:0,
+  logf:(x,P)=> x?Math.log(P.p):Math.log(1-P.p),
+  xsup:()=>[0,1],
+  mle:d=>({p:sum(d)/d.length}),
+  score:(P,d)=>{const n=d.length,S=sum(d); return S/P.p-(n-S)/(1-P.p)},
+  suff:d=>{const n=d.length,S=sum(d); return `n = <b>${n}</b>   S = &Sigma;x&#7522; = <b>${S}</b>   x&#772; = <b>${fmt(S/n)}</b>`},
+  math:{
+    f:`<i>f</i>(<i>x</i> | <i>p</i>) = <i>p</i><sup><i>x</i></sup>(1&minus;<i>p</i>)<sup>1&minus;<i>x</i></sup>,&nbsp; <i>x</i> &isin; {0, 1}`,
+    L:`<i>L</i>(<i>p</i>) = &prod;<sub><i>i</i></sub> <i>p</i><sup><i>x</i>&#7522;</sup>(1&minus;<i>p</i>)<sup>1&minus;<i>x</i>&#7522;</sup> = <i>p</i><sup><i>S</i></sup>(1&minus;<i>p</i>)<sup><i>n</i>&minus;<i>S</i></sup>`,
+    l:`&#8467;(<i>p</i>) = <i>S</i> log <i>p</i> + (<i>n</i>&minus;<i>S</i>) log(1&minus;<i>p</i>)`,
+    d:`${F("<i>d</i>&#8467;","<i>dp</i>")} = ${F("<i>S</i>","<i>p</i>")} &minus; ${F("<i>n</i>&minus;<i>S</i>","1&minus;<i>p</i>")}`,
+    mle:`<i>p&#770;</i> = <i>S</i>/<i>n</i> = <i>x&#772;</i>`,
+    note:`Only <em>S</em> enters the likelihood \u2014 which flips came up heads is invisible to it. Push <i>S</i> to 0 or <i>n</i> and the peak slides to the boundary, where step III finds nothing.`
+  }
+},
+{
+  id:"binomial", name:"Binomial(<i class='v'>m</i>, <i class='v'>p</i>)",
+  story:"defective units in a batch of m, batch after batch",
+  discrete:true, free:["p"],
+  params:[
+    {k:"m",lab:"m",min:1,max:40,step:1,def:10,fixed:true},
+    {k:"p",lab:"p",min:.01,max:.99,step:.01,def:.35,hmin:.005,hmax:.995,hstep:.005}],
+  sample:(P,r)=>{let s=0;for(let i=0;i<P.m;i++) if(r()<P.p) s++; return s},
+  logf:(x,P)=> logChoose(P.m,x)+(x?x*Math.log(P.p):0)+((P.m-x)?(P.m-x)*Math.log(1-P.p):0),
+  xsup:P=>[0,P.m],
+  mle:(d,P)=>({p:sum(d)/(d.length*P.m)}),
+  score:(P,d)=>{const N=d.length,S=sum(d); return S/P.p-(N*P.m-S)/(1-P.p)},
+  suff:(d,P)=>`N = <b>${d.length}</b> batches of m = <b>${P.m}</b>   S = &Sigma;x&#7522; = <b>${sum(d)}</b>   of Nm = <b>${d.length*P.m}</b> units`,
+  math:{
+    f:`<i>f</i>(<i>x</i> | <i>p</i>) = ${"<span class='tt'>C</span>"}(<i>m</i>, <i>x</i>) <i>p</i><sup><i>x</i></sup>(1&minus;<i>p</i>)<sup><i>m</i>&minus;<i>x</i></sup>`,
+    L:`<i>L</i>(<i>p</i>) = [&prod;<sub><i>i</i></sub> <span class='tt'>C</span>(<i>m</i>, <i>x</i>&#7522;)] &middot; <i>p</i><sup><i>S</i></sup>(1&minus;<i>p</i>)<sup><i>Nm</i>&minus;<i>S</i></sup>`,
+    l:`&#8467;(<i>p</i>) = <span style="opacity:.45">&Sigma; log <span class='tt'>C</span>(<i>m</i>, <i>x</i>&#7522;)</span> + <i>S</i> log <i>p</i> + (<i>Nm</i>&minus;<i>S</i>) log(1&minus;<i>p</i>)`,
+    d:`${F("<i>d</i>&#8467;","<i>dp</i>")} = ${F("<i>S</i>","<i>p</i>")} &minus; ${F("<i>Nm</i>&minus;<i>S</i>","1&minus;<i>p</i>")}`,
+    mle:`<i>p&#770;</i> = <i>S</i> / (<i>Nm</i>)`,
+    note:`The greyed term is the counting factor. It has no <i>p</i> in it, so it is <em>an additive constant in &#8467;</em>: it lifts the whole curve and moves the peak nowhere. That is recipe step II in one line.`
+  }
+},
+{
+  id:"geometric", name:"Geometric(<i class='v'>p</i>)",
+  story:"boxes of cereal opened until the rare prize turns up",
+  discrete:true, free:["p"],
+  params:[{k:"p",lab:"p",min:.02,max:.95,step:.01,def:.3,hmin:.01,hmax:.99,hstep:.005}],
+  sample:(P,r)=>{let u=r(); u=Math.max(u,1e-12); return Math.floor(Math.log(u)/Math.log(1-P.p))+1},
+  logf:(x,P)=> x<1?-Infinity:(x-1)*Math.log(1-P.p)+Math.log(P.p),
+  xsup:(P,d)=>[1,Math.max(6,Math.ceil(quantile([...d].sort((a,b)=>a-b),.99))+2)],
+  mle:d=>({p:d.length/sum(d)}),
+  score:(P,d)=>{const N=d.length,S=sum(d); return N/P.p-(S-N)/(1-P.p)},
+  suff:d=>`N = <b>${d.length}</b>   S = &Sigma;x&#7522; = <b>${sum(d)}</b>   x&#772; = <b>${fmt(sum(d)/d.length)}</b> boxes`,
+  math:{
+    f:`<i>f</i>(<i>x</i> | <i>p</i>) = (1&minus;<i>p</i>)<sup><i>x</i>&minus;1</sup><i>p</i>,&nbsp; <i>x</i> = 1, 2, 3, &hellip;`,
+    L:`<i>L</i>(<i>p</i>) = <i>p</i><sup><i>N</i></sup>(1&minus;<i>p</i>)<sup><i>S</i>&minus;<i>N</i></sup>`,
+    l:`&#8467;(<i>p</i>) = <i>N</i> log <i>p</i> + (<i>S</i>&minus;<i>N</i>) log(1&minus;<i>p</i>)`,
+    d:`${F("<i>d</i>&#8467;","<i>dp</i>")} = ${F("<i>N</i>","<i>p</i>")} &minus; ${F("<i>S</i>&minus;<i>N</i>","1&minus;<i>p</i>")}`,
+    mle:`<i>p&#770;</i> = <i>N</i>/<i>S</i> = 1/<i>x&#772;</i>`,
+    note:`Counting the trial that succeeds, so <i>x</i> &ge; 1. The estimate is <em>one over the mean wait</em> \u2014 the same reciprocal shape as the exponential below, and for the same reason.`
+  }
+},
+{
+  id:"poisson", name:"Poisson(&lambda;)",
+  story:"calls arriving at a help desk in one hour",
+  discrete:true, free:["lam"],
+  params:[{k:"lam",lab:"&lambda;",min:.2,max:25,step:.1,def:6,hmin:.05,hmax:30,hstep:.05}],
+  sample:(P,r)=>{const L=Math.exp(-P.lam); let k=0,p=1; do{k++;p*=r()}while(p>L); return k-1},
+  logf:(x,P)=> -P.lam+x*Math.log(P.lam)-logFact(x),
+  xsup:(P,d)=>[0,Math.max(6,Math.ceil(quantile([...d].sort((a,b)=>a-b),.995))+3)],
+  mle:d=>({lam:sum(d)/d.length}),
+  score:(P,d)=>{const N=d.length,S=sum(d); return -N+S/P.lam},
+  suff:d=>`N = <b>${d.length}</b> hours   S = &Sigma;x&#7522; = <b>${sum(d)}</b> calls   x&#772; = <b>${fmt(sum(d)/d.length)}</b>`,
+  math:{
+    f:`<i>f</i>(<i>x</i> | &lambda;) = ${F("&lambda;<sup><i>x</i></sup><i>e</i><sup>&minus;&lambda;</sup>","<i>x</i>!")},&nbsp; <i>x</i> = 0, 1, 2, &hellip;`,
+    L:`<i>L</i>(&lambda;) = ${F("&lambda;<sup><i>S</i></sup><i>e</i><sup>&minus;<i>N</i>&lambda;</sup>","&prod;<sub><i>i</i></sub> <i>x</i>&#7522;!")}`,
+    l:`&#8467;(&lambda;) = <i>S</i> log &lambda; &minus; <i>N</i>&lambda; <span style="opacity:.45">&minus; &Sigma; log <i>x</i>&#7522;!</span>`,
+    d:`${F("<i>d</i>&#8467;","<i>d</i>&lambda;")} = ${F("<i>S</i>","&lambda;")} &minus; <i>N</i>`,
+    mle:`&lambda;&#770; = <i>S</i>/<i>N</i> = <i>x&#772;</i>`,
+    note:`The factorials look forbidding and drop out entirely. &lambda; is <em>tied to the window</em>: these are counts per hour, so &lambda;&#770; is per hour. Halve the window and you must halve &lambda;.`
+  }
+},
+{
+  id:"exponential", name:"Exponential(&lambda;)",
+  story:"minutes until the next call \u2014 the same process, timed instead of counted",
+  discrete:false, free:["lam"],
+  params:[{k:"lam",lab:"&lambda;",min:.02,max:2,step:.01,def:.2,hmin:.01,hmax:2.5,hstep:.005}],
+  sample:(P,r)=> -Math.log(1-r())/P.lam,
+  logf:(x,P)=> x<0?-Infinity:Math.log(P.lam)-P.lam*x,
+  xsup:(P,d)=>[0,Math.max(...d)*1.15],
+  mle:d=>({lam:d.length/sum(d)}),
+  score:(P,d)=>d.length/P.lam-sum(d),
+  suff:d=>`N = <b>${d.length}</b> waits   S = &Sigma;x&#7522; = <b>${fmt(sum(d))}</b>   x&#772; = <b>${fmt(sum(d)/d.length)}</b> min`,
+  math:{
+    f:`<i>f</i>(<i>x</i> | &lambda;) = &lambda;<i>e</i><sup>&minus;&lambda;<i>x</i></sup>,&nbsp; <i>x</i> &ge; 0`,
+    L:`<i>L</i>(&lambda;) = &lambda;<sup><i>N</i></sup><i>e</i><sup>&minus;&lambda;<i>S</i></sup>`,
+    l:`&#8467;(&lambda;) = <i>N</i> log &lambda; &minus; &lambda;<i>S</i>`,
+    d:`${F("<i>d</i>&#8467;","<i>d</i>&lambda;")} = ${F("<i>N</i>","&lambda;")} &minus; <i>S</i>,&nbsp;&nbsp; ${F("<i>d</i>&sup2;&#8467;","<i>d</i>&lambda;&sup2;")} = &minus;${F("<i>N</i>","&lambda;&sup2;")} &lt; 0`,
+    mle:`&lambda;&#770; = <i>N</i>/<i>S</i> = 1/<i>x&#772;</i>`,
+    note:`Here <i>f</i> is a <em>density</em>, not a probability \u2014 its height can exceed 1 while the area stays 1. Raise &lambda; and watch that happen. The second derivative is negative everywhere, so the stationary point is the maximum with no further argument.`
+  }
+},
+{
+  id:"normal", name:"Normal(&mu;, &sigma;&sup2;)",
+  story:"repeated caliper readings of one machined part",
+  discrete:false, free:["mu","s2"],
+  params:[
+    {k:"mu",lab:"&mu;",min:-5,max:15,step:.1,def:10,hmin:-8,hmax:18,hstep:.05},
+    {k:"s2",lab:"&sigma;&sup2;",min:.1,max:25,step:.1,def:4,hmin:.05,hmax:30,hstep:.05}],
+  sample:(P,r)=>{const u=Math.max(r(),1e-12),v=r();
+    return P.mu+Math.sqrt(P.s2)*Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)},
+  logf:(x,P)=> -0.5*Math.log(2*Math.PI*P.s2)-(x-P.mu)**2/(2*P.s2),
+  xsup:(P,d)=>{const lo=Math.min(...d),hi=Math.max(...d),pad=(hi-lo)*.25+1e-9; return [lo-pad,hi+pad]},
+  mle:d=>{const m=sum(d)/d.length; return {mu:m,s2:sum(d.map(x=>(x-m)**2))/d.length}},
+  score:(P,d,k)=>{const N=d.length, Q=sum(d.map(x=>(x-P.mu)**2));
+    return k==="mu" ? sum(d.map(x=>x-P.mu))/P.s2 : -N/(2*P.s2)+Q/(2*P.s2*P.s2)},
+  suff:d=>{const N=d.length,m=sum(d)/N,v=sum(d.map(x=>(x-m)**2));
+    return `N = <b>${N}</b>   x&#772; = <b>${fmt(m)}</b>   &Sigma;(x&#7522;&minus;x&#772;)&sup2; = <b>${fmt(v)}</b><br>&sigma;&#770;&sup2; = SS/N = <b>${fmt(v/N)}</b>   s&sup2; = SS/(N&minus;1) = <b>${fmt(v/(N-1))}</b>`},
+  math:{
+    f:`<i>f</i>(<i>x</i> | &mu;, &sigma;&sup2;) = ${F("1","&radic;(2&pi;&sigma;&sup2;)")} exp(&minus;${F("(<i>x</i>&minus;&mu;)&sup2;","2&sigma;&sup2;")})`,
+    L:`<i>L</i>(&mu;, &sigma;&sup2;) = (2&pi;&sigma;&sup2;)<sup>&minus;<i>N</i>/2</sup> exp(&minus;${F("&Sigma;(<i>x</i>&#7522;&minus;&mu;)&sup2;","2&sigma;&sup2;")})`,
+    l:`&#8467; = <span style="opacity:.45">&minus;${F("<i>N</i>","2")} log 2&pi;</span> &minus; ${F("<i>N</i>","2")} log &sigma;&sup2; &minus; ${F("&Sigma;(<i>x</i>&#7522;&minus;&mu;)&sup2;","2&sigma;&sup2;")}`,
+    d:`&part;&#8467;/&part;&mu; = ${F("&Sigma;(<i>x</i>&#7522;&minus;&mu;)","&sigma;&sup2;")}&nbsp;&nbsp;&nbsp; &part;&#8467;/&part;&sigma;&sup2; = &minus;${F("<i>N</i>","2&sigma;&sup2;")} + ${F("&Sigma;(<i>x</i>&#7522;&minus;&mu;)&sup2;","2&sigma;&#8308;")}`,
+    mle:`&mu;&#770; = <i>x&#772;</i>,&nbsp;&nbsp; &sigma;&#770;&sup2; = ${F("1","<i>N</i>")}&Sigma;(<i>x</i>&#7522;&minus;<i>x&#772;</i>)&sup2;`,
+    note:`The &mu; equation has no &sigma;&sup2; in it \u2014 <em>two parameters, but not two coupled problems</em>. Solve for &mu;&#770; first, substitute, and &sigma;&#770;&sup2; falls out. Note it divides by <i>N</i>, not <i>N</i>&minus;1: maximum likelihood gives the biased one.`
+  }
+},
+{
+  id:"uniform", name:"Uniform(<i class='v'>a</i>, <i class='v'>b</i>)",
+  story:"a sensor reading evenly anywhere up to an unknown ceiling",
+  discrete:false, free:["a","b"], cliff:true,
+  params:[
+    {k:"a",lab:"a",min:-5,max:5,step:.1,def:0,hmin:-8,hmax:12,hstep:.05},
+    {k:"b",lab:"b",min:1,max:20,step:.1,def:10,hmin:-2,hmax:24,hstep:.05}],
+  sample:(P,r)=> P.a+(P.b-P.a)*r(),
+  logf:(x,P)=> (P.b>P.a && x>=P.a && x<=P.b) ? -Math.log(P.b-P.a) : -Infinity,
+  xsup:(P,d)=>{const lo=Math.min(...d),hi=Math.max(...d),pad=(hi-lo)*.3+1e-9; return [lo-pad,hi+pad]},
+  mle:d=>({a:Math.min(...d),b:Math.max(...d)}),
+  score:(P,d,k)=>{ if(!(P.b>P.a)) return NaN;
+    const lo=Math.min(...d),hi=Math.max(...d);
+    if(P.a>lo||P.b<hi) return NaN;
+    return k==="b" ? -d.length/(P.b-P.a) : d.length/(P.b-P.a)},
+  suff:d=>`N = <b>${d.length}</b>   min x&#7522; = <b>${fmt(Math.min(...d))}</b>   max x&#7522; = <b>${fmt(Math.max(...d))}</b>`,
+  math:{
+    f:`<i>f</i>(<i>x</i> | <i>a</i>, <i>b</i>) = ${F("1","<i>b</i>&minus;<i>a</i>")} for <i>a</i> &le; <i>x</i> &le; <i>b</i>,&nbsp; 0 otherwise`,
+    L:`<i>L</i> = (<i>b</i>&minus;<i>a</i>)<sup>&minus;<i>N</i></sup> if <i>a</i> &le; min <i>x</i>&#7522; and <i>b</i> &ge; max <i>x</i>&#7522;<br>&nbsp;&nbsp;&nbsp;&nbsp;= 0 otherwise`,
+    l:`&#8467; = &minus;<i>N</i> log(<i>b</i>&minus;<i>a</i>) on that region,&nbsp; &minus;&infin; off it`,
+    d:`&part;&#8467;/&part;<i>b</i> = &minus;${F("<i>N</i>","<i>b</i>&minus;<i>a</i>")} &lt; 0 &nbsp;&mdash; never zero`,
+    mle:`<i>a&#770;</i> = min <i>x</i>&#7522;,&nbsp;&nbsp; <i>b&#770;</i> = max <i>x</i>&#7522;`,
+    note:`Push <i>b&#770;</i> left past the largest observation and <i>L</i> does not decline \u2014 it <em>falls off a cliff to zero</em>, because the data become impossible. The maximum sits on that edge, so there is no stationary point to find and step III returns nothing. Notice <i>b&#770;</i> can never exceed the true <i>b</i>: this estimator is biased low by construction.`
+  }
+}];
+
+/* ============================ per-bay wiring ============================ */
+function build(d){
+  const det=document.createElement("details");
+  det.innerHTML=`<summary><i class="chev"></i><span class="dname">${d.name}</span><span class="dstory">${d.story}</span></summary>`;
+  const bay=document.createElement("div"); bay.className="bay";
+
+  const M=d.math;
+  const maths=document.createElement("div"); maths.className="maths";
+  maths.innerHTML=`
+    <h3>Model</h3><p class="eq">${M.f}</p>
+    <h3>Likelihood, data fixed</h3><p class="eq">${M.L}</p>
+    <h3>Log-likelihood</h3><p class="eq">${M.l}</p>
+    <h3>Derivative</h3><p class="eq">${M.d}</p>
+    <h3>Maximiser</h3><p class="eq">${M.mle}</p>
+    <h3>What to notice</h3><p class="note">${M.note}</p>`;
+
+  const rig=document.createElement("div"); rig.className="rig";
+  const est=d.params.filter(p=>!p.fixed);
+  const fixed=d.params.filter(p=>p.fixed);
+
+  rig.innerHTML=`
+   <fieldset class="truth"><legend>The world that made the data</legend>
+     ${d.params.map(p=>`<div class="ctl"><label for="${d.id}-t-${p.k}">${p.lab}</label>
+       <input type="range" id="${d.id}-t-${p.k}" data-t="${p.k}" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.def}">
+       <input type="number" data-tn="${p.k}" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.def}"></div>`).join("")}
+     <div class="ctl"><label for="${d.id}-n">n</label>
+       <input type="range" id="${d.id}-n" data-n min="4" max="400" step="1" value="60">
+       <input type="number" data-nn min="2" max="4000" step="1" value="60"></div>
+     <div class="row"><button data-resample>Draw a new dataset</button>
+       <span style="font-size:.85rem;color:var(--ink-soft)">seed</span>
+       <input type="number" data-seed value="7" style="width:70px"></div>
+     <div class="stat" data-suff></div>
+   </fieldset>
+   <fieldset class="est"><legend>Your candidate &theta;&#770;</legend>
+     ${est.map(p=>`<div class="ctl"><label for="${d.id}-h-${p.k}">${p.lab}&#770;</label>
+       <input type="range" id="${d.id}-h-${p.k}" data-h="${p.k}" min="${p.hmin}" max="${p.hmax}" step="${p.hstep}" value="${p.def}">
+       <input type="number" data-hn="${p.k}" min="${p.hmin}" max="${p.hmax}" step="${p.hstep}" value="${p.def}"></div>`).join("")}
+     ${fixed.length?`<div class="ctl"><label>${fixed[0].lab}</label><span style="grid-column:2/4;font-size:.85rem;color:var(--ink-soft)">known, not estimated \u2014 set above</span></div>`:""}
+     <div class="row">
+       ${est.length>1?`<span class="seg" data-seg>${est.map(p=>`<button data-axis="${p.k}">${p.lab}</button>`).join("")}</span>
+         <span style="font-size:.85rem;color:var(--ink-soft)">on the horizontal axis</span>`:""}
+       <button class="gold" data-snap>Snap &theta;&#770; to the maximiser</button>
+     </div>
+     <div class="stat" data-read></div>
+   </fieldset>
+   <div class="grid">
+     <figure><figcaption><span>the model against your data</span><small data-cap1></small></figcaption>
+       <canvas data-c="f" role="img" aria-label="The fitted distribution at your candidate parameter, drawn over a histogram of the data."></canvas></figure>
+     <figure class="drag"><figcaption><span><i>L</i>(&theta;)</span><small>scaled so the peak is 1</small></figcaption>
+       <canvas data-c="L" role="img" aria-label="Likelihood as a function of theta, with the data held fixed. Drag to move your candidate."></canvas></figure>
+     <figure class="drag"><figcaption><span>&#8467;(&theta;) = log <i>L</i>(&theta;)</span><small>same peak, kinder numbers</small></figcaption>
+       <canvas data-c="l" role="img" aria-label="Log-likelihood against theta. Drag to move your candidate."></canvas></figure>
+     <figure class="drag"><figcaption><span><i>d</i>&#8467; / <i>d</i>&theta;</span><small>zero crossing = maximiser</small></figcaption>
+       <canvas data-c="s" role="img" aria-label="Derivative of the log-likelihood against theta. Drag to move your candidate."></canvas></figure>
+   </div>`;
+
+  bay.appendChild(maths); bay.appendChild(rig); det.appendChild(bay);
+
+  /* ---- state ---- */
+  const st={
+    truth:Object.fromEntries(d.params.map(p=>[p.k,p.def])),
+    hat:Object.fromEntries(d.params.map(p=>[p.k,p.def])),
+    n:60, seed:7, axis:est[0].k, data:[]
+  };
+  const $=s=>rig.querySelector(s), $$=s=>[...rig.querySelectorAll(s)];
+  const cvs={f:$('[data-c=f]'),L:$('[data-c=L]'),l:$('[data-c=l]'),s:$('[data-c=s]')};
+
+  function regen(){
+    const r=mulberry32(st.seed>>>0);
+    for(let i=0;i<20;i++) r();
+    st.data=Array.from({length:st.n},()=>d.sample(st.truth,r));
+  }
+  function pset(which){ // param object for logf, mixing fixed truth params
+    const o={}; for(const p of d.params) o[p.k]= p.fixed ? st.truth[p.k] : which[p.k];
+    return o;
+  }
+  function ell(theta){ // theta: full param object
+    const P=pset(theta); let s=0;
+    for(const x of st.data){ const v=d.logf(x,P); if(!isFinite(v)) return -Infinity; s+=v; }
+    return s;
+  }
+  function mleParams(){ const m=d.mle(st.data,pset(st.truth)); return {...st.hat,...m}; }
+
+  function redraw(){
+    const data=st.data; if(!data.length) return;
+    const key=st.axis, meta=d.params.find(p=>p.k===key);
+    const mle=mleParams();
+    const Ph=pset(st.hat);
+
+    /* --- plot 1: model vs data --- */
+    {
+      let spec;
+      if(d.discrete){
+        const [lo,hi]=d.xsup(Ph,data);
+        const xs=[]; for(let k=Math.floor(lo);k<=Math.ceil(hi);k++) xs.push(k);
+        const cnt=new Map(); for(const x of data) cnt.set(x,(cnt.get(x)||0)+1);
+        const bars=xs.map(k=>({x0:k-.45,x1:k+.45,y:(cnt.get(k)||0)/data.length}));
+        const pm=xs.map(k=>[k,Math.exp(d.logf(k,Ph))]);
+        const pt=xs.map(k=>[k,Math.exp(d.logf(k,pset(st.truth)))]);
+        const ymax=Math.max(...bars.map(b=>b.y),...pm.map(p=>p[1]||0),...pt.map(p=>p[1]||0),1e-6);
+        spec={xd:[lo-.6,hi+.6],yd:[0,ymax*1.15],
+          bars:[{data:bars,color:COL.soft,alpha:.28,inset:1}],
+          stems:[{data:pm,color:COL.est,width:2}],
+          lines:[{data:pt,color:COL.truth,width:1.4,dash:[3,3]}],
+          xlab:"x",ylab:"probability"};
+      } else {
+        const [lo,hi]=d.xsup(Ph,data);
+        const nb=Math.min(26,Math.max(8,Math.round(Math.sqrt(data.length)*1.6)));
+        const w=(hi-lo)/nb, cnt=new Array(nb).fill(0);
+        for(const x of data){ let j=Math.floor((x-lo)/w); if(j<0)j=0; if(j>=nb)j=nb-1; cnt[j]++; }
+        const bars=cnt.map((c,j)=>({x0:lo+j*w,x1:lo+(j+1)*w,y:c/(data.length*w)}));
+        const N=240, curveH=[], curveT=[];
+        for(let i=0;i<=N;i++){ const x=lo+(hi-lo)*i/N;
+          curveH.push([x,Math.exp(d.logf(x,Ph))]); curveT.push([x,Math.exp(d.logf(x,pset(st.truth)))]); }
+        const ymax=Math.max(...bars.map(b=>b.y),
+          ...curveH.map(p=>isFinite(p[1])?p[1]:0),...curveT.map(p=>isFinite(p[1])?p[1]:0),1e-9);
+        spec={xd:[lo,hi],yd:[0,ymax*1.15],
+          bars:[{data:bars,color:COL.soft,alpha:.24}],
+          lines:[{data:curveT,color:COL.truth,width:1.4,dash:[3,3]},{data:curveH,color:COL.est,width:2.2}],
+          xlab:"x",ylab:"density"};
+      }
+      drawPlot(cvs.f,spec);
+      $('[data-cap1]').textContent = d.discrete ? "bars: observed shares" : "bars: histogram, area 1";
+    }
+
+    /* --- theta grid for plots 2-4 --- */
+    const NG=360;
+    let g0=meta.hmin, g1=meta.hmax;
+    if(d.cliff){ // widen so both sides of the cliff are visible
+      const lo=Math.min(...data), hi=Math.max(...data), sp=Math.max(hi-lo,1e-6);
+      if(key==="b"){ g0=lo-.15*sp; g1=hi+.7*sp; } else { g0=lo-.7*sp; g1=hi+.15*sp; }
+    } else if(d.id!=="normal"){
+      const m=mle[key];
+      if(isFinite(m)&&m>0){ g0=Math.max(meta.hmin,m*0.2); g1=Math.min(meta.hmax,m*2.6); }
+      if(key==="p"){ g0=Math.max(.002,Math.min(g0,m*.4)); g1=Math.min(.998,Math.max(g1,Math.min(.998,m*1.9+.05))); }
+    } else {
+      const m=mle[key], sd=Math.sqrt(mle.s2||1);
+      if(key==="mu"){ g0=m-3*sd; g1=m+3*sd; } else { g0=Math.max(.02,m*0.25); g1=m*2.6; }
+    }
+    if(!(g1>g0)){ g0=meta.hmin; g1=meta.hmax; }
+
+    const th=[], lv=[], sv=[];
+    for(let i=0;i<=NG;i++){
+      const t=g0+(g1-g0)*i/NG; th.push(t);
+      const cand={...st.hat}; cand[key]=t;
+      lv.push(ell(cand));
+      let sc=NaN;
+      try{ sc=d.score(pset(cand),data,key); }catch(e){ sc=NaN; }
+      sv.push(isFinite(sc)?sc:NaN);
+    }
+    const finite=lv.filter(isFinite);
+    const lmax=finite.length?Math.max(...finite):0;
+    const hatEll=ell(st.hat);
+    const hatScore=(()=>{ try{ const v=d.score(Ph,data,key); return isFinite(v)?v:NaN; }catch(e){ return NaN } })();
+
+    // shading for the impossible region (uniform)
+    const shades=[];
+    if(d.cliff){
+      const lo=Math.min(...data), hi=Math.max(...data);
+      if(key==="b" && hi>g0) shades.push({from:g0,to:hi,color:COL.truth,alpha:.10,label:"L = 0"});
+      if(key==="a" && lo<g1) shades.push({from:lo,to:g1,color:COL.truth,alpha:.10,label:"L = 0"});
+    }
+
+    /* --- plot 2: L --- */
+    {
+      const Lv=lv.map(v=>isFinite(v)?Math.exp(v-lmax):0);
+      const pts=th.map((t,i)=>[t,Lv[i]]);
+      const hatL=isFinite(hatEll)?Math.exp(hatEll-lmax):0;
+      drawPlot(cvs.L,{xd:[g0,g1],yd:[0,1.12],lines:[{data:pts,color:COL.est,width:2.2}],
+        shades,
+        vlines:[{at:st.truth[key],color:COL.truth,width:1.5,dash:[4,3]},{at:st.hat[key],color:COL.est,width:1.5}],
+        points:[{x:mle[key],y:isFinite(ell({...st.hat,[key]:mle[key]}))?Math.exp(ell({...st.hat,[key]:mle[key]})-lmax):0,color:COL.mle},
+                {x:st.hat[key],y:hatL,color:COL.est}],
+        xlab:meta.lab.replace(/&\w+;/g,m=>({"&lambda;":"\u03bb","&mu;":"\u03bc","&sigma;":"\u03c3"}[m]||m)),ylab:"L"});
+    }
+    /* --- plot 3: ell --- */
+    {
+      const srt=finite.slice().sort((a,b)=>a-b);
+      const ylo=srt.length?Math.min(quantile(srt,.06),lmax-1e-9):-1;
+      const pad=(lmax-ylo)*.08+1e-9;
+      drawPlot(cvs.l,{xd:[g0,g1],yd:[ylo-pad,lmax+pad],
+        lines:[{data:th.map((t,i)=>[t,lv[i]]),color:COL.est,width:2.2}],
+        shades,
+        vlines:[{at:st.truth[key],color:COL.truth,width:1.5,dash:[4,3]},{at:st.hat[key],color:COL.est,width:1.5}],
+        points:[{x:mle[key],y:ell({...st.hat,[key]:mle[key]}),color:COL.mle},{x:st.hat[key],y:hatEll,color:COL.est}],
+        xlab:"\u03b8",ylab:"\u2113"});
+    }
+    /* --- plot 4: score --- */
+    {
+      const fin=sv.filter(isFinite).slice().sort((a,b)=>a-b);
+      let ylo=fin.length?quantile(fin,.03):-1, yhi=fin.length?quantile(fin,.97):1;
+      if(!(yhi>ylo)){ ylo-=1; yhi+=1; }
+      const span=yhi-ylo; ylo-=span*.15; yhi+=span*.15;
+      if(ylo>0) ylo=-span*.15; if(yhi<0) yhi=span*.15;
+      drawPlot(cvs.s,{xd:[g0,g1],yd:[ylo,yhi],zeroLine:true,
+        lines:[{data:th.map((t,i)=>[t,sv[i]]),color:COL.est,width:2.2}],
+        shades,
+        vlines:[{at:st.hat[key],color:COL.est,width:1.5}],
+        points:[{x:mle[key],y:0,color:COL.mle},{x:st.hat[key],y:hatScore,color:COL.est}],
+        xlab:"\u03b8",ylab:"d\u2113/d\u03b8"});
+    }
+
+    /* --- readouts --- */
+    $('[data-suff]').innerHTML = d.suff(data,pset(st.truth));
+    const mleTxt=d.params.filter(p=>!p.fixed).map(p=>`${p.lab.replace(/<[^>]+>/g,"")}&#770; = <b>${fmt(mle[p.k])}</b>`).join("   ");
+    $('[data-read]').innerHTML =
+      `&#8467;(&theta;&#770;) = <b>${fmt(hatEll)}</b>   d&#8467;/d&theta; = <b>${isFinite(hatScore)?fmt(hatScore):"undefined"}</b><br>maximiser: ${mleTxt}`;
+  }
+
+  function full(){ regen(); redraw(); }
+
+  /* ---- events ---- */
+  $$('[data-t]').forEach(el=>el.addEventListener("input",e=>{
+    const k=e.target.dataset.t; st.truth[k]=+e.target.value;
+    rig.querySelector(`[data-tn="${k}"]`).value=e.target.value;
+    if(d.id==="uniform"&&st.truth.b<=st.truth.a){ st.truth.b=st.truth.a+.1; }
+    full();
+  }));
+  $$('[data-tn]').forEach(el=>el.addEventListener("change",e=>{
+    const k=e.target.dataset.tn; let v=+e.target.value; if(!isFinite(v)) return;
+    st.truth[k]=v; const r=rig.querySelector(`[data-t="${k}"]`); r.value=v; full();
+  }));
+  $$('[data-h]').forEach(el=>el.addEventListener("input",e=>{
+    const k=e.target.dataset.h; st.hat[k]=+e.target.value;
+    rig.querySelector(`[data-hn="${k}"]`).value=e.target.value; redraw();
+  }));
+  $$('[data-hn]').forEach(el=>el.addEventListener("change",e=>{
+    const k=e.target.dataset.hn; let v=+e.target.value; if(!isFinite(v)) return;
+    st.hat[k]=v; rig.querySelector(`[data-h="${k}"]`).value=v; redraw();
+  }));
+  $('[data-n]').addEventListener("input",e=>{ st.n=+e.target.value; rig.querySelector('[data-nn]').value=e.target.value; full(); });
+  $('[data-nn]').addEventListener("change",e=>{ const v=Math.max(2,Math.round(+e.target.value)||60);
+    st.n=v; rig.querySelector('[data-n]').value=Math.min(400,v); full(); });
+  $('[data-seed]').addEventListener("change",e=>{ st.seed=Math.round(+e.target.value)||0; full(); });
+  $('[data-resample]').addEventListener("click",()=>{ st.seed=(st.seed+1)|0;
+    rig.querySelector('[data-seed]').value=st.seed; full(); });
+  $('[data-snap]').addEventListener("click",()=>{
+    const m=mleParams();
+    for(const p of d.params){ if(p.fixed) continue; if(!isFinite(m[p.k])) continue;
+      st.hat[p.k]=m[p.k];
+      const r=rig.querySelector(`[data-h="${p.k}"]`), nn=rig.querySelector(`[data-hn="${p.k}"]`);
+      if(r){ r.value=m[p.k]; nn.value=fmt(m[p.k]); } }
+    redraw();
+  });
+  const seg=$('[data-seg]');
+  if(seg){ seg.querySelectorAll("button").forEach(b=>{
+      b.addEventListener("click",()=>{ st.axis=b.dataset.axis;
+        seg.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",x===b));
+        redraw(); });
+    });
+    seg.querySelector("button").setAttribute("aria-pressed","true");
+  }
+
+  // drag on L / ell / score plots to move theta-hat
+  [cvs.L,cvs.l,cvs.s].forEach(cv=>{
+    let down=false;
+    const set=ev=>{
+      const rect=cv.getBoundingClientRect();
+      const cx=(ev.touches?ev.touches[0].clientX:ev.clientX)-rect.left;
+      const frac=(cx-PAD.l)/(rect.width-PAD.l-PAD.r);
+      const k=st.axis, meta=d.params.find(p=>p.k===k);
+      let v=cv._x0+(cv._x1-cv._x0)*Math.max(0,Math.min(1,frac));
+      v=Math.max(meta.hmin,Math.min(meta.hmax,v));
+      st.hat[k]=v;
+      const r=rig.querySelector(`[data-h="${k}"]`), nn=rig.querySelector(`[data-hn="${k}"]`);
+      if(r){ r.value=v; nn.value=fmt(v); }
+      redraw();
+    };
+    cv.addEventListener("mousedown",e=>{down=true;set(e);e.preventDefault()});
+    window.addEventListener("mousemove",e=>{if(down)set(e)});
+    window.addEventListener("mouseup",()=>{down=false});
+    cv.addEventListener("touchstart",e=>{down=true;set(e);e.preventDefault()},{passive:false});
+    cv.addEventListener("touchmove",e=>{if(down){set(e);e.preventDefault()}},{passive:false});
+    cv.addEventListener("touchend",()=>{down=false});
+  });
+
+  det.addEventListener("toggle",()=>{ if(det.open) full(); });
+  let ro;
+  window.addEventListener("resize",()=>{ clearTimeout(ro); ro=setTimeout(()=>{ if(det.open) redraw(); },120); });
+  return det;
+}
+
+const bays=document.getElementById("bays");
+for(const d of DISTS) bays.appendChild(build(d));
+</script>
