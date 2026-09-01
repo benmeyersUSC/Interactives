@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SVD — the orbiting flashlight</title>
+<style>
+  :root{
+    --void:#05070f;
+    --void-2:#0b1020;
+    --ink:#dfe6f5;
+    --ink-dim:#8b98b8;
+    --ink-faint:#5a6684;
+    --v1:#ff77c8;   /* v1 / u1 : the stretched axis */
+    --v2:#63e6e2;   /* v2 / u2 : the preserved axis */
+    --beam:#ffc861; /* v3 / the light */
+    --rule:rgba(140,160,210,.16);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:
+      radial-gradient(1200px 800px at 62% 18%, #101a33 0%, rgba(16,26,51,0) 62%),
+      radial-gradient(900px 700px at 20% 90%, #0d1226 0%, rgba(13,18,38,0) 60%),
+      var(--void);
+    color:var(--ink);
+    font-family:"Inter","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+    font-feature-settings:"tnum" 1;
+    overflow:hidden;
+  }
+  #stage{position:fixed;inset:0}
+  canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+  canvas:active{cursor:grabbing}
+
+  /* ---- instrument panel ---- */
+  #panel{
+    position:fixed;top:0;left:0;height:100%;width:322px;
+    padding:26px 24px 22px;
+    display:flex;flex-direction:column;gap:18px;
+    background:linear-gradient(90deg, rgba(5,7,15,.94) 0%, rgba(5,7,15,.78) 74%, rgba(5,7,15,0) 100%);
+    -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);
+    overflow-y:auto;overscroll-behavior:contain;
+  }
+  h1{
+    margin:0;font-size:19px;font-weight:600;letter-spacing:-.015em;line-height:1.25;
+  }
+  h1 em{font-style:normal;color:var(--beam)}
+  .blurb{margin:0;font-size:12.5px;line-height:1.55;color:var(--ink-dim);max-width:34ch}
+  .blurb b{color:var(--ink);font-weight:500}
+
+  .ctl{display:flex;flex-direction:column;gap:7px}
+  .ctl .lab{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--ink-dim)}
+  .ctl .lab .num{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12px;color:var(--ink)}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:16px;background:transparent;margin:0;
+  }
+  input[type=range]::-webkit-slider-runnable-track{height:2px;background:rgba(140,160,210,.28);border-radius:2px}
+  input[type=range]::-moz-range-track{height:2px;background:rgba(140,160,210,.28);border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:var(--beam);
+    margin-top:-5.5px;box-shadow:0 0 0 4px rgba(255,200,97,.16);cursor:pointer}
+  input[type=range]::-moz-range-thumb{
+    width:13px;height:13px;border:0;border-radius:50%;background:var(--beam);
+    box-shadow:0 0 0 4px rgba(255,200,97,.16);cursor:pointer}
+  input[type=range]:focus-visible{outline:none}
+  input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 4px rgba(255,200,97,.45)}
+
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  button{
+    font:inherit;font-size:12px;color:var(--ink);background:rgba(140,160,210,.10);
+    border:1px solid var(--rule);border-radius:999px;padding:5px 13px;cursor:pointer;
+    transition:background .15s ease,border-color .15s ease}
+  button:hover{background:rgba(140,160,210,.18)}
+  button:focus-visible{outline:2px solid var(--beam);outline-offset:2px}
+  .chk{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-dim);cursor:pointer}
+  .chk input{accent-color:var(--beam);width:13px;height:13px;margin:0}
+
+  hr{border:0;border-top:1px solid var(--rule);margin:2px 0}
+
+  /* matrix + sigma readout */
+  .readout{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12px}
+  .mat{display:flex;align-items:stretch;gap:8px}
+  .mat .brk{width:7px;border-top:1px solid var(--ink-faint);border-bottom:1px solid var(--ink-faint)}
+  .mat .brk.l{border-left:1px solid var(--ink-faint)}
+  .mat .brk.r{border-right:1px solid var(--ink-faint)}
+  .mat .cells{display:grid;grid-template-columns:repeat(3,50px);gap:2px 6px;padding:5px 0}
+  .mat .cells span{text-align:right;color:var(--ink)}
+  .mat .cells span.z{color:var(--ink-faint)}
+  .caption{font-size:11px;color:var(--ink-faint);margin-top:6px;line-height:1.5}
+
+  .sig{display:grid;grid-template-columns:18px 1fr 46px;gap:9px 10px;align-items:center;margin-top:12px}
+  .sig .k{font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1}
+  .sig .bar{height:5px;border-radius:3px;position:relative;background:rgba(140,160,210,.12);overflow:hidden}
+  .sig .bar::after{ /* where sigma = 1 falls on the shared scale */
+    content:"";position:absolute;top:-2px;bottom:-2px;left:40.67%;width:1px;
+    background:rgba(190,205,245,.34)}
+  .sig .bar i{position:absolute;top:0;bottom:0;left:0;border-radius:3px;display:block;width:0}
+  .sig .val{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--ink-dim);text-align:right;line-height:1}
+  .sigrow{display:contents}
+
+  .derived{display:grid;grid-template-columns:1fr auto;gap:3px 10px;font-size:11.5px;color:var(--ink-faint);margin-top:-4px}
+  .derived .num{font-family:ui-monospace,Menlo,monospace;color:var(--ink-dim)}
+
+  .key{display:flex;flex-direction:column;gap:6px;font-size:11.5px;color:var(--ink-dim);line-height:1.45}
+  .key div{display:flex;gap:8px;align-items:flex-start}
+  .key i{width:16px;height:2px;border-radius:2px;margin-top:7px;flex:none}
+  .key b{color:var(--ink);font-weight:500}
+
+  .hint{font-size:11px;color:var(--ink-faint);margin-top:auto;padding-top:10px;line-height:1.5}
+
+  #toggle{position:fixed;top:14px;right:14px;display:none;z-index:5}
+
+  @media (max-width:900px){
+    #panel{
+      top:auto;bottom:0;height:auto;max-height:62%;width:100%;
+      padding:16px 18px calc(18px + env(safe-area-inset-bottom));
+      gap:14px;
+      background:linear-gradient(0deg, rgba(5,7,15,.97) 0%, rgba(5,7,15,.92) 70%, rgba(5,7,15,0) 100%);
+      border-top:1px solid var(--rule);
+    }
+    #panel.hidden{display:none}
+    #toggle{display:block}
+    .blurb{max-width:none}
+  }
+  @media (prefers-reduced-motion:reduce){
+    /* autoplay starts paused; user can opt in */
+  }
+</style>
+</head>
+<body>
+
+<div id="stage"><canvas id="c"></canvas></div>
+<button id="toggle">controls</button>
+
+<aside id="panel">
+  <div>
+    <h1>The orbiting <em>flashlight</em></h1>
+    <p class="blurb">A parallel beam always aimed through the centre of the sphere, always the same distance away. The shadow it throws on the table <b>is</b> the singular value decomposition of the projection.</p>
+  </div>
+
+  <div class="ctl">
+    <div class="lab"><label for="tiltx">Tilt toward x</label><span class="num" id="txVal">30.0°</span></div>
+    <input id="tiltx" type="range" min="-62" max="62" step="0.1" value="30" aria-label="Tilt toward x, degrees">
+  </div>
+  <div class="ctl">
+    <div class="lab"><label for="tilty">Tilt toward y</label><span class="num" id="tyVal">0.0°</span></div>
+    <input id="tilty" type="range" min="-62" max="62" step="0.1" value="0" aria-label="Tilt toward y, degrees">
+  </div>
+  <div class="derived">
+    <span>angle off vertical, α</span><span class="num" id="alphaVal">30.0°</span>
+    <span>heading, φ</span><span class="num" id="phiVal">0.0°</span>
+    <span>shadow's long axis</span><span class="num" id="axVal">0.0° from x</span>
+  </div>
+
+  <div class="row">
+    <button id="play">Orbit the light</button>
+    <label class="chk"><input type="checkbox" id="cTilt" checked> vary tilt</label>
+    <label class="chk"><input type="checkbox" id="cRays" checked> rays</label>
+    <label class="chk"><input type="checkbox" id="cDisk" checked> disk</label>
+    <label class="chk"><input type="checkbox" id="cAxes" checked> axes</label>
+  </div>
+
+  <hr>
+
+  <div class="readout">
+    <div class="mat">
+      <div class="brk l"></div>
+      <div class="cells">
+        <span class="z">1</span><span class="z">0</span><span id="a13">−0.73</span>
+        <span class="z">0</span><span class="z">1</span><span id="a23">0.00</span>
+      </div>
+      <div class="brk r"></div>
+    </div>
+    <p class="caption">A, the projection along the beam, written in table coordinates. Its third column is the only place the tilt lives.</p>
+
+    <div class="sig">
+      <div class="sigrow"><span class="k" style="color:var(--v1)">σ₁</span><span class="bar"><i id="b1" style="background:var(--v1)"></i></span><span class="val" id="s1">1.236</span></div>
+      <div class="sigrow"><span class="k" style="color:var(--v2)">σ₂</span><span class="bar"><i id="b2" style="background:var(--v2)"></i></span><span class="val" id="s2">1.000</span></div>
+      <div class="sigrow"><span class="k" style="color:var(--ink-faint)">σ₃</span><span class="bar"><i id="b3" style="background:var(--ink-faint)"></i></span><span class="val" id="s3">0.000</span></div>
+    </div>
+    <p class="caption">Turn off vary tilt and the orbit becomes pure rotation: U and V spin, Σ sits perfectly still. Turn it back on and only σ₁ responds. The hairline marks σ = 1. Only σ₁ moves, sweeping out to 1/cos α; σ₂ sits on the mark for every beam angle, because a sphere's shadow always has the sphere's own width across the tilt. The whole family of shadows is one stretch and a rotation.</p>
+  </div>
+
+  <hr>
+
+  <div class="key">
+    <div><i style="background:var(--v1)"></i><span><b>v₁ → σ₁u₁</b> the direction that gets stretched. Its tip lands on the long axis of the ellipse.</span></div>
+    <div><i style="background:var(--v2)"></i><span><b>v₂ → σ₂u₂</b> horizontal, square to the tilt, carried across untouched.</span></div>
+    <div><i style="background:var(--beam)"></i><span><b>v₃</b> points straight down the beam and collapses to a single point.</span></div>
+  </div>
+
+  <p class="hint">The camera holds still until you drag it. Drag to look around, scroll to zoom.</p>
+</aside>
+
+<script>
+(() => {
+"use strict";
+
+/* ------------------------------------------------------------------ *
+ *  vector helpers
+ * ------------------------------------------------------------------ */
+const sub  = (a,b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
+const add  = (a,b) => [a[0]+b[0], a[1]+b[1], a[2]+b[2]];
+const mul  = (a,s) => [a[0]*s, a[1]*s, a[2]*s];
+const dot  = (a,b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+const cross= (a,b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const norm = a => { const l = Math.hypot(a[0],a[1],a[2]) || 1; return [a[0]/l, a[1]/l, a[2]/l]; };
+const clamp= (x,a,b) => x < a ? a : x > b ? b : x;
+
+/* ------------------------------------------------------------------ *
+ *  scene constants
+ * ------------------------------------------------------------------ */
+const R      = 1;              // sphere radius
+const CY     = [0, 0, 1.62];   // sphere centre, floating above the table
+const LSRC   = 4.55;           // invariant distance from centre to the light
+const GRID   = 6.5;            // half-width of the table
+const MAXA   = 66 * Math.PI/180;
+
+/* ------------------------------------------------------------------ *
+ *  canvas + camera
+ * ------------------------------------------------------------------ */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  const r = canvas.getBoundingClientRect();
+  W = Math.max(1, r.width); H = Math.max(1, r.height);
+  canvas.width = Math.round(W*DPR); canvas.height = Math.round(H*DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener('resize', resize);
+
+const cam = { az: -1.02, el: 0.33, dist: 15.2, target: [0,0,0.75] };
+let CAM = null;
+
+function setupCam(){
+  const ce = Math.cos(cam.el), se = Math.sin(cam.el);
+  const p = [
+    cam.target[0] + cam.dist*ce*Math.cos(cam.az),
+    cam.target[1] + cam.dist*ce*Math.sin(cam.az),
+    cam.target[2] + cam.dist*se
+  ];
+  const f = norm(sub(cam.target, p));
+  const r = norm(cross(f, [0,0,1]));
+  const u = cross(r, f);
+  const focal = Math.min(W, H) * 1.15;
+  CAM = { p, f, r, u, focal };
+}
+
+function proj(P){
+  const v = sub(P, CAM.p);
+  const z = dot(v, CAM.f);
+  return { x: W/2 + CAM.focal*dot(v,CAM.r)/z, y: H/2 - CAM.focal*dot(v,CAM.u)/z, z };
+}
+
+/* ------------------------------------------------------------------ *
+ *  painter's-algorithm draw queue
+ * ------------------------------------------------------------------ */
+const Q = [];
+const push = (z, fn) => Q.push({ z, fn });
+function flush(){
+  Q.sort((a,b) => b.z - a.z);
+  for (let i = 0; i < Q.length; i++) Q[i].fn();
+  Q.length = 0;
+}
+const NEAR = 0.08;
+
+function line3(a, b, color, width, dash, zBias){
+  const A = proj(a), B = proj(b);
+  if (A.z < NEAR || B.z < NEAR) return;
+  push((A.z + B.z)/2 + (zBias||0), () => {
+    ctx.save();
+    ctx.strokeStyle = color; ctx.lineWidth = width || 1; ctx.lineCap = 'round';
+    if (dash) ctx.setLineDash(dash);
+    ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+    ctx.restore();
+  });
+}
+
+function loop3(pts, opts){
+  const P = []; let zs = 0;
+  for (const p of pts){ const q = proj(p); if (q.z < NEAR) return; P.push(q); zs += q.z; }
+  const z = (opts.z !== undefined) ? opts.z : zs/P.length;
+  push(z, () => {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(P[0].x, P[0].y);
+    for (let i = 1; i < P.length; i++) ctx.lineTo(P[i].x, P[i].y);
+    ctx.closePath();
+    if (opts.fill){ ctx.fillStyle = opts.fill; ctx.fill(); }
+    if (opts.stroke){
+      ctx.strokeStyle = opts.stroke; ctx.lineWidth = opts.width || 1;
+      if (opts.dash) ctx.setLineDash(opts.dash);
+      ctx.stroke();
+    }
+    ctx.restore();
+  });
+}
+
+function arrow3(from, to, color, label, width){
+  const A = proj(from), B = proj(to);
+  if (A.z < NEAR || B.z < NEAR) return;
+  const dx = B.x - A.x, dy = B.y - A.y;
+  const L = Math.hypot(dx, dy) || 1;
+  const ux = dx/L, uy = dy/L;
+  const hs = Math.min(15, L*0.3);
+  const bx = B.x - ux*hs, by = B.y - uy*hs;
+  const w = hs*0.40;
+  push((A.z + B.z)/2 - 0.35, () => {
+    ctx.save();
+    ctx.strokeStyle = color; ctx.lineWidth = width || 2; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(bx, by); ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(B.x, B.y);
+    ctx.lineTo(bx - uy*w, by + ux*w);
+    ctx.lineTo(bx + uy*w, by - ux*w);
+    ctx.closePath(); ctx.fill();
+    if (label){
+      ctx.font = '500 12.5px ui-monospace, "SF Mono", Menlo, monospace';
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.globalAlpha = 0.95;
+      ctx.fillText(label, B.x + ux*15, B.y + uy*15);
+    }
+    ctx.restore();
+  });
+}
+
+function label3(P, text, color, dx, dy, font){
+  const A = proj(P);
+  if (A.z < NEAR) return;
+  push(A.z - 0.6, () => {
+    ctx.save();
+    ctx.font = font || '500 11.5px ui-monospace, "SF Mono", Menlo, monospace';
+    ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, A.x + (dx||0), A.y + (dy||0));
+    ctx.restore();
+  });
+}
+
+function circle3(centre, e1, e2, radius, n){
+  const pts = [];
+  for (let i = 0; i < n; i++){
+    const t = i/n * Math.PI*2;
+    pts.push(add(centre, add(mul(e1, radius*Math.cos(t)), mul(e2, radius*Math.sin(t)))));
+  }
+  return pts;
+}
+
+/* ------------------------------------------------------------------ *
+ *  state
+ * ------------------------------------------------------------------ */
+let tx = 30*Math.PI/180;        // tilt of the beam toward +x
+let ty = 0;                    // tilt of the beam toward +y
+let alpha = 0, phi = 0;        // derived: angle off vertical, and heading
+let orbiting = false;                    // no motion until asked for
+let orbAlpha = 30*Math.PI/180, orbPhi = 0;
+let breathe = true, orbMid = 0, orbSwing = 0, orbT = 0;
+let showRays = true, showDisk = true, showAxes = true;
+
+/* the beam leans by tx about one axis and ty about the other, so the two
+   controls are independent and can be worked at the same time. alpha and
+   phi fall out of them.
+
+   at alpha = 0 the beam is vertical, sigma1 = sigma2 = 1, and the singular
+   frame is genuinely non-unique — any orthonormal pair will do. so the
+   heading is discontinuous there and the arrows reflect as they pass
+   through. that is the real geometry, not an artifact. */
+function deriveTilt(){
+  const X = Math.tan(tx), Y = Math.tan(ty);
+  alpha = Math.min(Math.atan(Math.hypot(X, Y)), MAXA);
+  phi = Math.atan2(Y, X);
+}
+
+const el = id => document.getElementById(id);
+const sTx = el('tiltx'), sTy = el('tilty');
+const playBtn = el('play');
+
+sTx.addEventListener('input', () => { tx = +sTx.value*Math.PI/180; stop(); });
+sTy.addEventListener('input', () => { ty = +sTy.value*Math.PI/180; stop(); });
+el('cTilt').addEventListener('change', e => breathe = e.target.checked);
+el('cRays').addEventListener('change', e => showRays = e.target.checked);
+el('cDisk').addEventListener('change', e => showDisk = e.target.checked);
+el('cAxes').addEventListener('change', e => showAxes = e.target.checked);
+
+function stop(){ if (orbiting){ orbiting = false; playBtn.textContent = 'Orbit the light'; } }
+playBtn.addEventListener('click', () => {
+  orbiting = !orbiting;
+  if (orbiting){
+    // hold whatever tilt is currently set and walk the heading around it,
+    // so the light rides the ring at constant reach
+    orbAlpha = clamp(alpha, 0.02, 62*Math.PI/180);
+    orbPhi = phi;
+    // the breath swings around that tilt, kept inside the slider rails
+    const lo = Math.max(3*Math.PI/180,  orbAlpha - 30*Math.PI/180);
+    const hi = Math.min(62*Math.PI/180, orbAlpha + 30*Math.PI/180);
+    orbMid = (lo + hi)/2; orbSwing = (hi - lo)/2;
+    // enter the sine wherever the current tilt already sits, so nothing jumps
+    orbT = orbSwing > 1e-6
+      ? Math.asin(clamp((orbAlpha - orbMid)/orbSwing, -1, 1)) / 0.43
+      : 0;
+  }
+  playBtn.textContent = orbiting ? 'Stop the orbit' : 'Orbit the light';
+});
+
+const panel = el('panel'), toggle = el('toggle');
+toggle.addEventListener('click', () => {
+  panel.classList.toggle('hidden');
+  toggle.textContent = panel.classList.contains('hidden') ? 'controls' : 'hide';
+});
+
+/* camera drag */
+let drag = null;
+canvas.addEventListener('pointerdown', e => {
+  drag = { x: e.clientX, y: e.clientY };
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', e => {
+  if (!drag) return;
+  cam.az -= (e.clientX - drag.x) * 0.006;
+  cam.el = clamp(cam.el + (e.clientY - drag.y) * 0.005, -0.12, 1.42);
+  drag.x = e.clientX; drag.y = e.clientY;
+});
+const endDrag = () => { drag = null; };
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', endDrag);
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  cam.dist = clamp(cam.dist * (1 + Math.sign(e.deltaY)*0.075), 7, 34);
+}, { passive: false });
+
+/* ------------------------------------------------------------------ *
+ *  the frame
+ * ------------------------------------------------------------------ */
+let last = performance.now();
+
+function frame(now){
+  const dt = Math.min(0.05, (now - last)/1000); last = now;
+  if (orbiting){
+    orbPhi += dt * 0.50;
+    let a = orbAlpha;
+    if (breathe){
+      orbT += dt;
+      a = orbMid + orbSwing*Math.sin(orbT * 0.43);   // slower than the orbit, but not by much
+    }
+    const t = Math.tan(a);
+    tx = Math.atan(t*Math.cos(orbPhi));
+    ty = Math.atan(t*Math.sin(orbPhi));
+    sTx.value = (tx*180/Math.PI).toFixed(1);
+    sTy.value = (ty*180/Math.PI).toFixed(1);
+  }
+  deriveTilt();
+
+  resizeIfNeeded();
+  setupCam();
+  ctx.clearRect(0, 0, W, H);
+  build();
+  flush();
+  readout();
+  requestAnimationFrame(frame);
+}
+
+let lastW = -1, lastH = -1;
+function resizeIfNeeded(){
+  const r = canvas.getBoundingClientRect();
+  if (Math.round(r.width) !== lastW || Math.round(r.height) !== lastH){
+    lastW = Math.round(r.width); lastH = Math.round(r.height);
+    resize();
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  geometry of the current configuration
+ * ------------------------------------------------------------------ */
+function geom(){
+  const ca = Math.cos(alpha), sa = Math.sin(alpha);
+  const cp = Math.cos(phi),   sp = Math.sin(phi);
+
+  // n : unit vector from the sphere centre toward the light source
+  const n = [sa*cp, sa*sp, ca];
+
+  // right-handed triad, v3 pointing down the beam
+  const v3 = mul(n, -1);
+  const v2 = [-sp, cp, 0];
+  const v1 = cross(v2, v3);          // = [-ca*cp, -ca*sp, sa]
+
+  const s1 = 1/ca, s2 = 1, s3 = 0;
+
+  // u_i = A v_i / sigma_i, lifted back into the z = 0 plane
+  const u1 = [-cp, -sp, 0];
+  const u2 = [-sp,  cp, 0];
+
+  const S  = add(CY, mul(n, LSRC));                 // light source
+  const castToFloor = p => sub(p, mul(n, p[2]/ca)); // project along the beam
+  const sc = castToFloor(CY);                       // shadow centre
+
+  return { n, v1, v2, v3, u1, u2, s1, s2, s3, S, sc, castToFloor, ca, sa, cp, sp };
+}
+
+/* ------------------------------------------------------------------ *
+ *  build the scene
+ * ------------------------------------------------------------------ */
+function build(){
+  const g = geom();
+  const { n, v1, v2, v3, u1, u2, s1, s2, S, sc, castToFloor } = g;
+
+  /* ---- the table ---------------------------------------------------- */
+  const G = GRID;
+  loop3([[-G,-G,0],[G,-G,0],[G,G,0],[-G,G,0]], {
+    fill: 'rgba(74,102,168,.055)', z: 1e9
+  });
+
+  /* ---- the shadow ellipse (sits just above the table fill) ---------- */
+  const rim = [];
+  for (let i = 0; i < 128; i++){
+    const t = i/128*Math.PI*2;
+    rim.push(castToFloor(add(CY, add(mul(v1, Math.cos(t)), mul(v2, Math.sin(t))))));
+  }
+  loop3(rim, { fill: 'rgba(4,4,12,.62)', z: 9.2e8 });
+  loop3(rim, { stroke: 'rgba(150,140,220,.42)', width: 1.25, z: 9.1e8 });
+
+  /* ---- grid lines --------------------------------------------------- */
+  for (let i = -G; i <= G; i += 1){
+    const faint = (i === 0) ? 0 : 1;
+    if (!faint) continue;
+    line3([i,-G,0],[i,G,0],'rgba(130,152,205,.10)',1);
+    line3([-G,i,0],[G,i,0],'rgba(130,152,205,.10)',1);
+  }
+
+  /* ---- the standard axes: a translucent spine ----------------------- */
+  if (showAxes){
+    const ax = [
+      { d:[1,0,0], c:'rgba(224,90,90,',  L:G,   lab:'x' },
+      { d:[0,1,0], c:'rgba(90,208,122,', L:G,   lab:'y' },
+      { d:[0,0,1], c:'rgba(90,157,224,', L:4.6, lab:'z' }
+    ];
+    for (const a of ax){
+      line3(mul(a.d, -a.L*0.55), [0,0,0], a.c+'.16)', 1, [3,5]);
+      line3([0,0,0], mul(a.d, a.L), a.c+'.42)', 1.3);
+      label3(mul(a.d, a.L+0.38), a.lab, a.c+'.72)');
+    }
+    // small tick marks along x and y so scale is legible
+    for (let i = 1; i <= 5; i++){
+      line3([i,-0.09,0],[i,0.09,0],'rgba(224,90,90,.28)',1);
+      line3([-0.09,i,0],[0.09,i,0],'rgba(90,208,122,.28)',1);
+    }
+  }
+
+  /* ---- the circle the light is confined to: its actual track --------- */
+  const ringC = add(CY, [0,0,LSRC*Math.cos(alpha)]);
+  const orbit = circle3(ringC, [1,0,0], [0,1,0], LSRC*Math.sin(alpha), 96);
+  loop3(orbit, { stroke: 'rgba(255,200,97,.26)', width: 1.1, dash: [4,6] });
+  line3(CY, S, 'rgba(255,200,97,.20)', 1, [2,6]);
+
+  /* ---- the beam ----------------------------------------------------- */
+  // tangent rays: they graze the sphere exactly on the boundary of the
+  // preserved disk, then continue to the rim of the shadow ellipse.
+  if (showRays){
+    const NR = 16;
+    for (let i = 0; i < NR; i++){
+      const t = i/NR*Math.PI*2;
+      const e = add(mul(v1, R*Math.cos(t)), mul(v2, R*Math.sin(t)));
+      const graze = add(CY, e);
+      line3(add(S, e), graze, 'rgba(255,200,97,.30)', 1);
+      line3(graze, castToFloor(graze), 'rgba(150,140,220,.17)', 1);
+    }
+  }
+  // aperture rings — the flashlight body
+  loop3(circle3(S, v1, v2, R, 64),            { stroke:'rgba(255,200,97,.60)', width:1.4 });
+  loop3(circle3(add(S, mul(n,0.34)), v1, v2, R*0.92, 64), { stroke:'rgba(255,200,97,.30)', width:1 });
+  for (let i = 0; i < 8; i++){
+    const t = i/8*Math.PI*2;
+    const e1 = add(mul(v1, R*Math.cos(t)), mul(v2, R*Math.sin(t)));
+    const e2 = mul(e1, 0.92);
+    line3(add(S, e1), add(add(S, mul(n,0.34)), e2), 'rgba(255,200,97,.34)', 1);
+  }
+  // the axial ray, all the way through
+  line3(S, CY, 'rgba(255,214,140,.85)', 1.8);
+  line3(CY, sc, 'rgba(255,200,97,.30)', 1.4, [5,5]);
+  label3(add(CY, mul(n, LSRC*0.62)), 'fixed reach', 'rgba(255,200,97,.5)', 0, -14, '400 10.5px Inter, sans-serif');
+
+  /* ---- the sphere --------------------------------------------------- */
+  drawSphere(v1, v2, v3);
+
+  /* ---- the preserved disk, span(v1, v2) ----------------------------- */
+  if (showDisk){
+    const disk = circle3(CY, v1, v2, R, 72);
+    loop3(disk, { fill: 'rgba(99,230,226,.085)' });
+    loop3(disk, { stroke: 'rgba(99,230,226,.36)', width: 1.1 });
+  }
+
+  /* ---- the V triad, unit length so the tips sit on the sphere ------- */
+  arrow3(CY, add(CY, v1), 'rgba(255,119,200,.95)', 'v₁', 2.1);
+  arrow3(CY, add(CY, v2), 'rgba(99,230,226,.95)',  'v₂', 2.1);
+  arrow3(CY, add(CY, v3), 'rgba(255,200,97,.95)',  'v₃', 2.1);
+
+  /* ---- the U frame on the table ------------------------------------- */
+  loop3(circle3(sc, u1, u2, 1, 72), { stroke:'rgba(190,205,245,.20)', width:1, dash:[3,5], z: 9.0e8 });
+  arrow3(sc, add(sc, mul(u1, s1)), 'rgba(255,119,200,.95)', 'σ₁u₁', 2.1);
+  arrow3(sc, add(sc, mul(u2, s2)), 'rgba(99,230,226,.95)',  'σ₂u₂', 2.1);
+
+  /* ---- v_i tip → σ_i u_i tip: the map, drawn ------------------------ */
+  line3(add(CY, v1), add(sc, mul(u1, s1)), 'rgba(255,119,200,.34)', 1, [4,5]);
+  line3(add(CY, v2), add(sc, mul(u2, s2)), 'rgba(99,230,226,.34)',  1, [4,5]);
+
+  /* ---- the collapse ------------------------------------------------- */
+  const P = proj(sc);
+  if (P.z > NEAR){
+    push(P.z - 1.2, () => {
+      ctx.save();
+      ctx.beginPath(); ctx.arc(P.x, P.y, 6.4, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(255,200,97,.14)'; ctx.fill();
+      ctx.beginPath(); ctx.arc(P.x, P.y, 3, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(255,214,140,.95)'; ctx.fill();
+      ctx.font = '400 11px ui-monospace, Menlo, monospace';
+      ctx.fillStyle = 'rgba(255,200,97,.75)';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('v₃ ↦ this point,  σ₃ = 0', P.x + 11, P.y + 12);
+      ctx.restore();
+    });
+  }
+}
+
+/* sphere: silhouette + a faint world-aligned wireframe, all see-through */
+function drawSphere(v1, v2, v3){
+  const dc = Math.hypot(CY[0]-CAM.p[0], CY[1]-CAM.p[1], CY[2]-CAM.p[2]);
+  if (dc <= R*1.02) return;
+  const A = proj(CY);
+  if (A.z < NEAR) return;
+  const rs = CAM.focal * R / Math.sqrt(dc*dc - R*R);
+
+  // wireframe segments, gathered into one path
+  const segs = [];
+  for (let k = -3; k <= 3; k++){
+    const zz = k/4, rr = Math.sqrt(Math.max(0, 1 - zz*zz));
+    const pts = [];
+    for (let i = 0; i <= 48; i++){
+      const t = i/48*Math.PI*2;
+      pts.push(proj([CY[0] + rr*Math.cos(t), CY[1] + rr*Math.sin(t), CY[2] + zz]));
+    }
+    segs.push(pts);
+  }
+  for (let m = 0; m < 8; m++){
+    const th = m/8*Math.PI;
+    const pts = [];
+    for (let i = 0; i <= 48; i++){
+      const t = i/48*Math.PI*2;
+      pts.push(proj([
+        CY[0] + Math.sin(t)*Math.cos(th),
+        CY[1] + Math.sin(t)*Math.sin(th),
+        CY[2] + Math.cos(t)
+      ]));
+    }
+    segs.push(pts);
+  }
+
+  push(A.z, () => {
+    ctx.save();
+    const grd = ctx.createRadialGradient(A.x - rs*0.3, A.y - rs*0.35, rs*0.05, A.x, A.y, rs);
+    grd.addColorStop(0,   'rgba(150,180,255,.10)');
+    grd.addColorStop(0.72,'rgba(110,140,220,.05)');
+    grd.addColorStop(1,   'rgba(180,205,255,.16)');
+    ctx.beginPath(); ctx.arc(A.x, A.y, rs, 0, Math.PI*2);
+    ctx.fillStyle = grd; ctx.fill();
+
+    ctx.strokeStyle = 'rgba(180,200,255,.13)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (const pts of segs){
+      let started = false;
+      for (const q of pts){
+        if (q.z < NEAR){ started = false; continue; }
+        if (!started){ ctx.moveTo(q.x, q.y); started = true; }
+        else ctx.lineTo(q.x, q.y);
+      }
+    }
+    ctx.stroke();
+
+    ctx.beginPath(); ctx.arc(A.x, A.y, rs, 0, Math.PI*2);
+    ctx.strokeStyle = 'rgba(198,216,255,.34)'; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.restore();
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ *  panel readout
+ * ------------------------------------------------------------------ */
+const fmt = x => (Math.abs(x) < 5e-4 ? '0.000' : x.toFixed(3)).replace('-', '−');
+function readout(){
+  const ta = Math.tan(alpha);
+  el('a13').textContent = fmt(-ta*Math.cos(phi));
+  el('a23').textContent = fmt(-ta*Math.sin(phi));
+  const s1 = 1/Math.cos(alpha);
+  el('s1').textContent = fmt(s1);
+  el('s2').textContent = '1.000';
+  el('s3').textContent = '0.000';
+  const cap = 1/Math.cos(MAXA);              // same scale for all three tracks
+  el('b1').style.width = (100*s1/cap).toFixed(2) + '%';
+  el('b2').style.width = (100/cap).toFixed(2) + '%';
+  el('b3').style.width = '0%';
+  el('txVal').textContent = (tx*180/Math.PI).toFixed(1) + '°';
+  el('tyVal').textContent = (ty*180/Math.PI).toFixed(1) + '°';
+  el('alphaVal').textContent = (alpha*180/Math.PI).toFixed(1) + '°';
+  el('phiVal').textContent   = ((((phi*180/Math.PI)%360)+360)%360).toFixed(1) + '°';
+  // u1 = (-cos phi, -sin phi): an undirected axis, so report it mod 180
+  const ax = ((((phi*180/Math.PI + 180) % 180) + 180) % 180);
+  el('axVal').textContent = ax.toFixed(1) + '° from x';
+}
+
+/* ------------------------------------------------------------------ *
+ *  go
+ * ------------------------------------------------------------------ */
+resize();
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>
