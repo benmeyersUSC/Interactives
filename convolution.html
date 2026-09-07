@@ -1,0 +1,804 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Convolution, slowly</title>
+<style>
+  :root{
+    --bg:#0d0f13;
+    --panel:#14171d;
+    --panel-2:#191d24;
+    --edge:#242a34;
+    --grid-major:#252b36;
+    --grid-minor:#1a1f27;
+    --axis:#59616f;
+    --ink:#ccd4e0;
+    --muted:#79828f;
+    --red:#ff5e6c;
+    --blue:#4d9dff;
+    --purple:#b57dff;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --sans:ui-sans-serif,-apple-system,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+  body{padding:26px 20px 60px}
+  .wrap{max-width:1180px;margin:0 auto}
+
+  h1{font-family:var(--serif);font-weight:400;font-size:30px;letter-spacing:.01em;margin:0 0 4px}
+  h1 em{font-style:italic}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 22px;max-width:62ch;line-height:1.55}
+
+  .bar{display:flex;flex-wrap:wrap;gap:14px 18px;align-items:flex-end;
+       background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:14px 16px;margin-bottom:16px}
+  .field{display:flex;flex-direction:column;gap:5px;min-width:0}
+  .field label{font-size:12px;color:var(--muted)}
+  .field label b{font-family:var(--serif);font-style:italic;font-size:14px;font-weight:400}
+  .lred b{color:var(--red)} .lblue b{color:var(--blue)}
+  input[type=text],select,input[type=number]{
+    background:var(--panel-2);border:1px solid var(--edge);border-radius:7px;color:var(--ink);
+    padding:8px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13.5px;outline:none}
+  input[type=text]:focus,select:focus,input[type=number]:focus{border-color:#3d4757;box-shadow:0 0 0 3px rgba(77,157,255,.14)}
+  .grow{flex:1 1 210px}
+  .grow input{width:100%}
+  select{font-family:var(--sans)}
+  .err{color:var(--red);font-size:11.5px;min-height:14px}
+
+  .seg{display:inline-flex;border:1px solid var(--edge);border-radius:7px;overflow:hidden}
+  .seg button{background:var(--panel-2);border:0;color:var(--muted);padding:8px 12px;font-size:13px;cursor:pointer;
+              font-family:var(--serif);font-style:italic}
+  .seg button[aria-pressed=true]{background:#222833;color:var(--ink)}
+  .seg button+button{border-left:1px solid var(--edge)}
+
+  .btn{background:var(--panel-2);border:1px solid var(--edge);border-radius:7px;color:var(--ink);
+       padding:8px 12px;font-size:13px;cursor:pointer}
+  .btn:hover{border-color:#3d4757}
+  .btn:active{background:#222833}
+
+  .panel{background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:10px 12px 8px}
+  .cap{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px}
+  .cap .name{font-family:var(--serif);font-style:italic;font-size:15px}
+  .cap .val{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--muted)}
+  canvas{display:block;width:100%;height:100%;border-radius:6px;touch-action:none}
+  .h-sm{height:180px} .h-md{height:300px} .h-lg{height:230px}
+
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+  .row3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media (max-width:840px){.row2,.row3{grid-template-columns:1fr}}
+
+  .mathbar{display:flex;flex-wrap:wrap;align-items:center;gap:16px;justify-content:space-between;
+           background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:14px 18px;margin:14px 0}
+  .expr{font-family:var(--serif);font-size:21px;letter-spacing:.01em;display:flex;align-items:center;gap:.18em}
+  .expr i{font-style:italic}
+  .expr .r{color:var(--red)} .expr .b{color:var(--blue)} .expr .p{color:var(--purple)}
+  .intsign{font-size:34px;line-height:.7;position:relative;top:2px;font-family:var(--serif)}
+  .lim{display:inline-flex;flex-direction:column;font-size:10px;color:var(--muted);line-height:1.15;margin-left:-.15em;margin-right:.15em}
+  .result{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;color:var(--purple)}
+
+  .scrub{display:flex;align-items:center;gap:12px;margin-top:8px}
+  .scrub input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:3px;border-radius:2px;background:#2b323d;outline:none}
+  .scrub input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+    background:var(--purple);border:2px solid #0d0f13;box-shadow:0 0 0 1px var(--purple);cursor:grab}
+  .scrub input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:var(--purple);border:2px solid #0d0f13;cursor:grab}
+  .xread{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;color:var(--ink);min-width:78px;text-align:right}
+
+  .legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:8px;font-size:12px;color:var(--muted)}
+  .legend span{display:flex;align-items:center;gap:6px}
+  .swatch{width:14px;height:9px;border-radius:2px;display:inline-block}
+
+  .note{color:var(--muted);font-size:12.5px;line-height:1.6;margin:16px 2px 0;max-width:78ch}
+  .note code{font-family:ui-monospace,Menlo,Consolas,monospace;color:#9aa5b4;background:var(--panel-2);
+             padding:1px 5px;border-radius:4px;font-size:11.5px}
+  .zoom{flex-direction:row;gap:6px;align-items:center;flex-wrap:wrap}
+  @media (max-width:600px){.zoom{width:100%}.zoom .btn{flex:1}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Convolution, one shift at a time</h1>
+  <p class="sub">Pick any <em>f</em> and <em>g</em>. The middle panel holds <em>f</em> still and slides <em>g</em> past it; the shaded purple region is the product being integrated. Drag anywhere on the sliding panel or the result curve to move <em>x</em>.</p>
+
+  <div class="bar">
+    <div class="field grow lred">
+      <label><b>f</b>(z) =</label>
+      <input id="fin" type="text" spellcheck="false" value="rect(z)">
+      <div class="err" id="ferr"></div>
+    </div>
+    <div class="field grow lblue">
+      <label><b>g</b>(z) =</label>
+      <input id="gin" type="text" spellcheck="false" value="exp(-2z)step(z)">
+      <div class="err" id="gerr"></div>
+    </div>
+    <div class="field">
+      <label>Examples</label>
+      <select id="preset">
+        <option value="">choose…</option>
+      </select>
+      <div class="err"></div>
+    </div>
+    <div class="field">
+      <label>Kernel argument</label>
+      <div class="seg" role="group">
+        <button id="mConv" aria-pressed="true">g(x − z)</button>
+        <button id="mCorr" aria-pressed="false">g(z − x)</button>
+      </div>
+      <div class="err"></div>
+    </div>
+    <div class="field zoom">
+      <button class="btn" id="zin">Zoom in</button>
+      <button class="btn" id="zout">Zoom out</button>
+      <button class="btn" id="zreset">Reset view</button>
+    </div>
+  </div>
+
+  <div class="row2">
+    <div class="panel">
+      <div class="cap"><span class="name">f(z)</span><span class="val" id="fArea"></span></div>
+      <div class="h-sm"><canvas id="cf"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="cap"><span class="name">g(z)</span><span class="val" id="gArea"></span></div>
+      <div class="h-sm"><canvas id="cg"></canvas></div>
+    </div>
+  </div>
+
+  <div class="mathbar">
+    <div class="expr" id="expr"></div>
+    <div class="result" id="hval">—</div>
+  </div>
+
+  <div class="panel" style="margin-bottom:14px">
+    <div class="cap"><span class="name">The integrand, at shift x</span><span class="val" id="ovInfo"></span></div>
+    <div class="h-md"><canvas id="cov"></canvas></div>
+    <div class="scrub">
+      <button class="btn" id="play">Play</button>
+      <input id="slider" type="range" min="-12" max="12" step="0.01" value="0">
+      <span class="xread" id="xread">x = 0.00</span>
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:rgba(255,94,108,.35);border:1px solid var(--red)"></i>f(z)</span>
+      <span><i class="swatch" style="background:rgba(77,157,255,.35);border:1px solid var(--blue)"></i><span id="glegend">g(x − z)</span></span>
+      <span><i class="swatch" style="background:rgba(181,125,255,.45);border:1px solid var(--purple)"></i>their product — the purple area is the answer</span>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:14px">
+    <div class="cap"><span class="name">(f ∗ g)(x)</span><span class="val">the purple area, plotted against every shift</span></div>
+    <div class="h-lg"><canvas id="ch"></canvas></div>
+  </div>
+
+  <div class="row3">
+    <div class="panel">
+      <div class="cap"><span class="name">∫ f(z) dz</span><span class="val" id="cfEnd"></span></div>
+      <div class="h-sm"><canvas id="cif"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="cap"><span class="name" id="cgTitle">∫ g(x − z) dz</span><span class="val" id="cgEnd"></span></div>
+      <div class="h-sm"><canvas id="cig"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="cap"><span class="name" id="cpTitle">∫ f·g dz</span><span class="val" id="cpEnd"></span></div>
+      <div class="h-sm"><canvas id="cip"></canvas></div>
+    </div>
+  </div>
+
+  <p class="note">
+    The bottom row sweeps the upper limit of each integral from left to right, so each curve shows area accumulating.
+    The first two accumulate f and the shifted g on their own — note that the second one's final height never changes as you scrub,
+    only its position does, since shifting a function doesn't change its total area. Only the third one, which accumulates the
+    <em>product</em>, has an endpoint that moves: that endpoint is exactly (f ∗ g)(x), the dot riding the purple curve above.
+  </p>
+
+</div>
+
+<script>
+"use strict";
+
+/* ---------------------------------------------------------------- parser -- */
+
+const FN = {
+  sin:[1,Math.sin], cos:[1,Math.cos], tan:[1,Math.tan],
+  asin:[1,Math.asin], acos:[1,Math.acos], atan:[1,Math.atan],
+  sinh:[1,Math.sinh], cosh:[1,Math.cosh], tanh:[1,Math.tanh],
+  exp:[1,Math.exp], ln:[1,Math.log], log:[1,Math.log], log10:[1,Math.log10],
+  sqrt:[1,Math.sqrt], abs:[1,Math.abs], sign:[1,Math.sign],
+  floor:[1,Math.floor], ceil:[1,Math.ceil], round:[1,Math.round],
+  rect:[1,u=>{const a=Math.abs(u); return a<0.5?1:(a>0.5?0:0.5);}],
+  tri:[1,u=>Math.max(0,1-Math.abs(u))],
+  step:[1,u=>u<0?0:1], heaviside:[1,u=>u<0?0:1],
+  sinc:[1,u=>u===0?1:Math.sin(Math.PI*u)/(Math.PI*u)],
+  gauss:[1,u=>Math.exp(-u*u/2)],
+  min:[2,Math.min], max:[2,Math.max], pow:[2,Math.pow],
+  mod:[2,(a,b)=>((a%b)+b)%b]
+};
+const CONSTS = {pi:Math.PI, e:Math.E, tau:2*Math.PI};
+const VARS = ["x","z","t"];
+
+function tokenize(src){
+  const raw=[]; let i=0;
+  const isNum=c=>c>="0"&&c<="9"||c===".";
+  const isAlpha=c=>/[a-zA-Z_]/.test(c);
+  while(i<src.length){
+    const c=src[i];
+    if(/\s/.test(c)){i++;continue;}
+    if(isNum(c)){let j=i;while(j<src.length&&isNum(src[j]))j++;
+      const v=parseFloat(src.slice(i,j));
+      if(!isFinite(v))throw new Error('bad number "'+src.slice(i,j)+'"');
+      raw.push({t:"num",v}); i=j; continue;}
+    if(isAlpha(c)){let j=i;while(j<src.length&&/[a-zA-Z_0-9]/.test(src[j]))j++;
+      raw.push({t:"id",v:src.slice(i,j)}); i=j; continue;}
+    if("+-*/^(),".indexOf(c)>=0){raw.push({t:c});i++;continue;}
+    if(c==="\u2212"){raw.push({t:"-"});i++;continue;}
+    if(c==="\u00b7"||c==="\u00d7"||c==="\u2217"){raw.push({t:"*"});i++;continue;}
+    throw new Error('unexpected character "'+c+'"');
+  }
+  const out=[];
+  for(let k=0;k<raw.length;k++){
+    const a=raw[k], b=raw[k+1];
+    out.push(a);
+    if(!b) break;
+    const aEnds = a.t==="num" || a.t===")" || (a.t==="id" && !FN[a.v]);
+    const bStarts = b.t==="num" || b.t==="(" || b.t==="id";
+    if(aEnds && bStarts) out.push({t:"*"});
+  }
+  return out;
+}
+
+function compile(src){
+  if(!src.trim()) throw new Error("empty");
+  const tk = tokenize(src);
+  let p = 0;
+  const peek=()=>tk[p], eat=()=>tk[p++];
+
+  function expr(){
+    let n = term();
+    while(peek() && (peek().t==="+"||peek().t==="-")){
+      const op=eat().t, r=term(), l=n;
+      n = op==="+" ? v=>l(v)+r(v) : v=>l(v)-r(v);
+    }
+    return n;
+  }
+  function term(){
+    let n = unary();
+    while(peek() && (peek().t==="*"||peek().t==="/")){
+      const op=eat().t, r=unary(), l=n;
+      n = op==="*" ? v=>l(v)*r(v) : v=>l(v)/r(v);
+    }
+    return n;
+  }
+  function unary(){
+    if(peek() && peek().t==="-"){eat(); const a=unary(); return v=>-a(v);}
+    if(peek() && peek().t==="+"){eat(); return unary();}
+    return power();
+  }
+  function power(){
+    const b = atom();
+    if(peek() && peek().t==="^"){eat(); const e=unary(); return v=>Math.pow(b(v),e(v));}
+    return b;
+  }
+  function atom(){
+    const t = eat();
+    if(!t) throw new Error("expression ends early");
+    if(t.t==="num"){const c=t.v; return ()=>c;}
+    if(t.t==="("){
+      const e=expr();
+      const cl=eat(); if(!cl||cl.t!==")") throw new Error("missing )");
+      return e;
+    }
+    if(t.t==="id"){
+      const name=t.v;
+      if(FN[name]){
+        const open=eat(); if(!open||open.t!=="(") throw new Error(name+" needs parentheses");
+        const args=[expr()];
+        while(peek()&&peek().t===","){eat();args.push(expr());}
+        const cl=eat(); if(!cl||cl.t!==")") throw new Error("missing ) after "+name);
+        const spec=FN[name];
+        if(args.length!==spec[0]) throw new Error(name+" takes "+spec[0]+" argument"+(spec[0]>1?"s":""));
+        const fn=spec[1];
+        if(spec[0]===1){const a=args[0]; return v=>fn(a(v));}
+        const a=args[0], b=args[1]; return v=>fn(a(v),b(v));
+      }
+      if(name in CONSTS){const c=CONSTS[name]; return ()=>c;}
+      if(VARS.indexOf(name)>=0) return v=>v;
+      throw new Error('unknown name "'+name+'"');
+    }
+    throw new Error('unexpected "'+(t.v!==undefined?t.v:t.t)+'"');
+  }
+  const root=expr();
+  if(p<tk.length) throw new Error('unexpected "'+(tk[p].v!==undefined?tk[p].v:tk[p].t)+'"');
+  root(0);
+  return root;
+}
+
+/* ------------------------------------------------------------- numerics -- */
+
+const ZH = 14, DZ = 0.005;                // integration window and step
+const NZ = Math.round(2*ZH/DZ)+1;
+const Zs = new Float64Array(NZ);
+for(let i=0;i<NZ;i++) Zs[i] = -ZH + i*DZ;
+
+const XH = 12, MX = 481;                  // shifts at which (f*g) is tabulated
+const DX = 2*XH/(MX-1);
+const Xs = new Float64Array(MX);
+for(let m=0;m<MX;m++) Xs[m] = -XH + m*DX;
+
+const U0 = -(ZH+XH+1), U1 = ZH+XH+1;      // kernel-argument grid
+const NU = Math.round((U1-U0)/DZ)+1;
+
+const fArr   = new Float64Array(NZ);
+const cumF   = new Float64Array(NZ);
+const gArr   = new Float64Array(NU);
+const cumG   = new Float64Array(NU);
+const hArr   = new Float64Array(MX);
+const cumP   = new Float64Array(NZ);
+
+let fFn = null, gFn = null;
+let mode = "conv";                        // "conv": g(x-z) | "corr": g(z-x)
+let prodLo = 0, prodHi = 1, cumPLo = 0, cumPHi = 1, gRaw = [0,1], hRange = [-1,1], ovRange = [-1,1], fRange=[-1,1], gRange=[-1,1], cumFRange=[-1,1], cumGRange=[-1,1];
+let totalF = 0, totalG = 0;
+
+const finite = v => (typeof v==="number" && isFinite(v)) ? v : 0;
+
+function gAt(u){
+  const s=(u-U0)/DZ, i=Math.floor(s);
+  if(i<0||i>=NU-1) return 0;
+  const w=s-i;
+  return gArr[i]*(1-w)+gArr[i+1]*w;
+}
+function cumGAt(u){
+  const s=(u-U0)/DZ, i=Math.floor(s);
+  if(i<0) return 0;
+  if(i>=NU-1) return cumG[NU-1];
+  const w=s-i;
+  return cumG[i]*(1-w)+cumG[i+1]*w;
+}
+function arg(z,x){ return mode==="conv" ? x-z : z-x; }
+
+function recompute(){
+  for(let i=0;i<NZ;i++) fArr[i]=finite(fFn(Zs[i]));
+  for(let i=0;i<NU;i++) gArr[i]=finite(gFn(U0+i*DZ));
+
+  cumF[0]=0; for(let i=1;i<NZ;i++) cumF[i]=cumF[i-1]+(fArr[i]+fArr[i-1])*0.5*DZ;
+  cumG[0]=0; for(let i=1;i<NU;i++) cumG[i]=cumG[i-1]+(gArr[i]+gArr[i-1])*0.5*DZ;
+  totalF = cumF[NZ-1];
+  totalG = integrateShifted(0);
+
+  let pLo=0, pHi=0, cLo=0, cHi=0;
+  for(let m=0;m<MX;m++){
+    const x=Xs[m];
+    let acc=0, prev=fArr[0]*gAt(arg(Zs[0],x));
+    for(let i=1;i<NZ;i++){
+      const cur=fArr[i]*gAt(arg(Zs[i],x));
+      acc += (cur+prev)*0.5*DZ; prev=cur;
+      if(acc<cLo)cLo=acc; if(acc>cHi)cHi=acc;
+      if(cur<pLo)pLo=cur; if(cur>pHi)pHi=cur;
+    }
+    hArr[m]=acc;
+  }
+  prodLo=pLo; prodHi=pHi; cumPLo=cLo; cumPHi=cHi;
+
+  // extremes of the running-g-integral curve, sampled across shifts so the
+  // panel does not rescale while scrubbing
+  let lo=0, hi=0;
+  const sg = mode==="conv" ? -1 : 1;
+  for(let k=0;k<9;k++){
+    const x=-XH + 2*XH*k/8, base=cumGAt(arg(-ZH,x));
+    for(let j=0;j<=200;j++){
+      const z=-ZH + 2*ZH*j/200, v=sg*(cumGAt(arg(z,x))-base);
+      if(v<lo)lo=v; if(v>hi)hi=v;
+    }
+  }
+  cumGRange = pad([lo,hi]);
+  gRaw = minMax(gArr);
+  gRange = pad(gRaw);
+  rescale();
+}
+
+function rescale(){
+  const a=view[0], b=view[1];
+  fRange    = pad(minMaxIn(fArr,-ZH,DZ,a,b));
+  hRange    = pad(minMaxIn(hArr,-XH,DX,a,b));
+  cumFRange = pad(minMaxIn(cumF,-ZH,DZ,a,b));
+  const fr=minMaxIn(fArr,-ZH,DZ,a,b);
+  ovRange   = pad([Math.min(fr[0],gRaw[0],prodLo),
+                   Math.max(fr[1],gRaw[1],prodHi)]);
+}
+
+function integrateShifted(x){
+  let acc=0, prev=gAt(arg(Zs[0],x));
+  for(let i=1;i<NZ;i++){const cur=gAt(arg(Zs[i],x)); acc+=(cur+prev)*0.5*DZ; prev=cur;}
+  return acc;
+}
+function buildCumP(x){
+  cumP[0]=0;
+  let prev=fArr[0]*gAt(arg(Zs[0],x));
+  for(let i=1;i<NZ;i++){
+    const cur=fArr[i]*gAt(arg(Zs[i],x));
+    cumP[i]=cumP[i-1]+(cur+prev)*0.5*DZ;
+    prev=cur;
+  }
+  return cumP[NZ-1];
+}
+function minMaxIn(arr,x0,step,a,b){
+  const i0=Math.max(0,Math.floor((a-x0)/step)), i1=Math.min(arr.length-1,Math.ceil((b-x0)/step));
+  let lo=Infinity,hi=-Infinity;
+  for(let i=i0;i<=i1;i++){const v=arr[i];if(v<lo)lo=v;if(v>hi)hi=v;}
+  if(!isFinite(lo)){lo=-1;hi=1;}
+  return [lo,hi];
+}
+function minMax(a){let lo=Infinity,hi=-Infinity;for(let i=0;i<a.length;i++){const v=a[i];if(v<lo)lo=v;if(v>hi)hi=v;}
+  if(!isFinite(lo)){lo=-1;hi=1;} return [lo,hi];}
+function pad(r){
+  let lo=Math.min(0,r[0]), hi=Math.max(0,r[1]);
+  if(hi-lo<1e-6){lo-=.5;hi+=.5;}
+  const m=(hi-lo)*0.14; return [lo-m,hi+m];
+}
+function sampleArr(arr,zGrid0,step,z){
+  const s=(z-zGrid0)/step, i=Math.floor(s);
+  if(i<0) return arr[0];
+  if(i>=arr.length-1) return arr[arr.length-1];
+  const w=s-i; return arr[i]*(1-w)+arr[i+1]*w;
+}
+
+/* -------------------------------------------------------------- drawing -- */
+
+const COL = {red:"#ff5e6c", blue:"#4d9dff", purple:"#b57dff"};
+let view = [-6,6];
+
+function prep(cv){
+  const dpr=window.devicePixelRatio||1;
+  const r=cv.getBoundingClientRect();
+  const w=Math.max(1,Math.round(r.width)), h=Math.max(1,Math.round(r.height));
+  if(cv.width!==w*dpr||cv.height!==h*dpr){cv.width=w*dpr;cv.height=h*dpr;}
+  const ctx=cv.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,w,h);
+  return {ctx,w,h};
+}
+function niceStep(range,target){
+  const raw=range/target, p=Math.pow(10,Math.floor(Math.log10(raw))), n=raw/p;
+  let s; if(n<1.5)s=1; else if(n<3)s=2; else if(n<7)s=5; else s=10;
+  return s*p;
+}
+function fmt(v,step){
+  if(Math.abs(v)<step*1e-6) return "0";
+  const d=Math.max(0,Math.min(4,-Math.floor(Math.log10(step))));
+  let s=v.toFixed(d);
+  if(d>0) s=s.replace(/0+$/,"").replace(/\.$/,"");
+  return s;
+}
+function makeMap(w,h,vx,vy){
+  const ax=w/(vx[1]-vx[0]), ay=h/(vy[1]-vy[0]);
+  return {X:x=>(x-vx[0])*ax, Y:y=>h-(y-vy[0])*ay};
+}
+function grid(ctx,w,h,vx,vy,map){
+  ctx.fillStyle="#101318"; ctx.fillRect(0,0,w,h);
+  const sx=niceStep(vx[1]-vx[0], Math.max(3,w/95));
+  const sy=niceStep(vy[1]-vy[0], Math.max(2,h/60));
+  ctx.lineWidth=1;
+  // minor
+  ctx.strokeStyle="#171b22"; ctx.beginPath();
+  for(let x=Math.ceil(vx[0]/(sx/5))*(sx/5); x<vx[1]; x+=sx/5){const p=Math.round(map.X(x))+.5;ctx.moveTo(p,0);ctx.lineTo(p,h);}
+  for(let y=Math.ceil(vy[0]/(sy/5))*(sy/5); y<vy[1]; y+=sy/5){const p=Math.round(map.Y(y))+.5;ctx.moveTo(0,p);ctx.lineTo(w,p);}
+  ctx.stroke();
+  // major
+  ctx.strokeStyle="#232a35"; ctx.beginPath();
+  for(let x=Math.ceil(vx[0]/sx)*sx; x<vx[1]; x+=sx){const p=Math.round(map.X(x))+.5;ctx.moveTo(p,0);ctx.lineTo(p,h);}
+  for(let y=Math.ceil(vy[0]/sy)*sy; y<vy[1]; y+=sy){const p=Math.round(map.Y(y))+.5;ctx.moveTo(0,p);ctx.lineTo(w,p);}
+  ctx.stroke();
+  // axes
+  ctx.strokeStyle="#59616f"; ctx.lineWidth=1.2; ctx.beginPath();
+  const y0=Math.round(map.Y(0))+.5, x0=Math.round(map.X(0))+.5;
+  if(0>=vy[0]&&0<=vy[1]){ctx.moveTo(0,y0);ctx.lineTo(w,y0);}
+  if(0>=vx[0]&&0<=vx[1]){ctx.moveTo(x0,0);ctx.lineTo(x0,h);}
+  ctx.stroke();
+}
+function axisLabels(ctx,w,h,vx,vy,map){
+  const sx=niceStep(vx[1]-vx[0], Math.max(3,w/95));
+  const sy=niceStep(vy[1]-vy[0], Math.max(2,h/60));
+  ctx.font="10px ui-monospace,Menlo,Consolas,monospace";
+  ctx.shadowColor="#0d0f13"; ctx.shadowBlur=4;
+  ctx.fillStyle="#7c8794";
+  ctx.textAlign="center"; ctx.textBaseline="top";
+  const labY=Math.min(h-13,Math.max(2,(0>=vy[0]&&0<=vy[1])?map.Y(0)+3:h-13));
+  for(let x=Math.ceil(vx[0]/sx)*sx; x<vx[1]; x+=sx){
+    if(Math.abs(x)<sx*1e-6) continue;
+    const px=map.X(x);
+    if(px<16||px>w-16) continue;
+    ctx.fillText(fmt(x,sx), px, labY);
+  }
+  ctx.textAlign="right"; ctx.textBaseline="middle";
+  const labX=Math.min(w-4,Math.max(26,(0>=vx[0]&&0<=vx[1])?map.X(0)-5:w-4));
+  for(let y=Math.ceil(vy[0]/sy)*sy; y<vy[1]; y+=sy){
+    if(Math.abs(y)<sy*1e-6) continue;
+    const py=map.Y(y);
+    if(py<9||py>h-9) continue;
+    ctx.fillText(fmt(y,sy), labX, py);
+  }
+  ctx.shadowBlur=0;
+}
+function curve(ctx,w,vx,map,fn,color,opts){
+  opts=opts||{};
+  const dens=opts.dens||1.5, N=Math.max(2,Math.round(w*dens));
+  const xs=new Float64Array(N+1), ys=new Float64Array(N+1);
+  for(let i=0;i<=N;i++){const x=vx[0]+(vx[1]-vx[0])*i/N; xs[i]=x; const v=fn(x); ys[i]=(typeof v==="number"&&isFinite(v))?v:NaN;}
+  const runs=[]; let cur=null;
+  for(let i=0;i<=N;i++){
+    if(isNaN(ys[i])){ if(cur){runs.push(cur);cur=null;} }
+    else { if(!cur)cur=[]; cur.push(i); }
+  }
+  if(cur)runs.push(cur);
+  if(opts.fill){
+    ctx.fillStyle=opts.fill;
+    for(const run of runs){
+      if(run.length<2)continue;
+      ctx.beginPath();
+      ctx.moveTo(map.X(xs[run[0]]),map.Y(0));
+      for(const i of run) ctx.lineTo(map.X(xs[i]),map.Y(ys[i]));
+      ctx.lineTo(map.X(xs[run[run.length-1]]),map.Y(0));
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  ctx.strokeStyle=color; ctx.lineWidth=opts.lw||2;
+  ctx.lineJoin="round"; ctx.lineCap="round";
+  ctx.setLineDash(opts.dash||[]);
+  for(const run of runs){
+    if(run.length<2)continue;
+    ctx.beginPath();
+    let first=true;
+    for(const i of run){ const px=map.X(xs[i]), py=map.Y(ys[i]);
+      if(first){ctx.moveTo(px,py);first=false;} else ctx.lineTo(px,py); }
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+}
+function vline(ctx,map,h,x,color,dash){
+  ctx.save(); ctx.strokeStyle=color; ctx.lineWidth=1; ctx.setLineDash(dash||[4,4]);
+  ctx.beginPath(); const p=Math.round(map.X(x))+.5; ctx.moveTo(p,0); ctx.lineTo(p,h); ctx.stroke(); ctx.restore();
+}
+function dot(ctx,map,x,y,color,r){
+  ctx.fillStyle=color; ctx.beginPath(); ctx.arc(map.X(x),map.Y(y),r||4.5,0,7); ctx.fill();
+  ctx.strokeStyle="#0d0f13"; ctx.lineWidth=1.5; ctx.stroke();
+}
+function tag(ctx,w,h,text,px,py,color){
+  ctx.font="11px ui-monospace,Menlo,Consolas,monospace";
+  const tw=ctx.measureText(text).width;
+  let x=Math.min(w-tw-8,Math.max(6,px)), y=Math.min(h-8,Math.max(14,py));
+  ctx.fillStyle="rgba(13,15,19,.78)"; ctx.fillRect(x-4,y-11,tw+8,15);
+  ctx.fillStyle=color; ctx.textAlign="left"; ctx.textBaseline="alphabetic";
+  ctx.fillText(text,x,y);
+}
+
+/* ------------------------------------------------------------------ app -- */
+
+const el = id => document.getElementById(id);
+const cvs = {f:el("cf"),g:el("cg"),ov:el("cov"),h:el("ch"),iF:el("cif"),iG:el("cig"),iP:el("cip")};
+let X = 0, playing=false, lastT=0, dir=1;
+
+function draw(){
+  const hx = buildCumP(X);
+
+  // f
+  {
+    const {ctx,w,h}=prep(cvs.f), map=makeMap(w,h,view,fRange);
+    grid(ctx,w,h,view,fRange,map);
+    curve(ctx,w,view,map,fFn,COL.red,{fill:"rgba(255,94,108,.16)"});
+    axisLabels(ctx,w,h,view,fRange,map);
+  }
+  // g, with the shifted copy ghosted in
+  {
+    const {ctx,w,h}=prep(cvs.g), map=makeMap(w,h,view,gRange);
+    grid(ctx,w,h,view,gRange,map);
+    curve(ctx,w,view,map,z=>gFn(arg(z,X)),COL.blue,{lw:1.2,dash:[3,4]});
+    curve(ctx,w,view,map,gFn,COL.blue,{fill:"rgba(77,157,255,.16)"});
+    axisLabels(ctx,w,h,view,gRange,map);
+  }
+  // overlap
+  {
+    const {ctx,w,h}=prep(cvs.ov), map=makeMap(w,h,view,ovRange);
+    grid(ctx,w,h,view,ovRange,map);
+    curve(ctx,w,view,map,fFn,COL.red,{fill:"rgba(255,94,108,.20)",dens:2});
+    curve(ctx,w,view,map,z=>gFn(arg(z,X)),COL.blue,{fill:"rgba(77,157,255,.20)",dens:2});
+    curve(ctx,w,view,map,z=>fFn(z)*gFn(arg(z,X)),"rgba(181,125,255,.9)",{fill:"rgba(181,125,255,.42)",dens:2,lw:2});
+    axisLabels(ctx,w,h,view,ovRange,map);
+    vline(ctx,map,h,X,"rgba(181,125,255,.5)");
+    tag(ctx,w,h,"x = "+X.toFixed(2),map.X(X)+7,14,COL.purple);
+  }
+  // result
+  {
+    const {ctx,w,h}=prep(cvs.h), map=makeMap(w,h,view,hRange);
+    grid(ctx,w,h,view,hRange,map);
+    curve(ctx,w,view,map,x=>sampleArr(hArr,-XH,DX,x),COL.purple,{fill:"rgba(181,125,255,.16)"});
+    axisLabels(ctx,w,h,view,hRange,map);
+    vline(ctx,map,h,X,"rgba(181,125,255,.45)");
+    dot(ctx,map,X,hx,COL.purple);
+    tag(ctx,w,h,hx.toFixed(4),map.X(X)+8,map.Y(hx)-8,COL.purple);
+  }
+  // running integrals
+  {
+    const {ctx,w,h}=prep(cvs.iF), map=makeMap(w,h,view,cumFRange);
+    grid(ctx,w,h,view,cumFRange,map);
+    curve(ctx,w,view,map,z=>sampleArr(cumF,-ZH,DZ,z),COL.red,{fill:"rgba(255,94,108,.12)"});
+    axisLabels(ctx,w,h,view,cumFRange,map);
+    const v=sampleArr(cumF,-ZH,DZ,view[1]);
+    dot(ctx,map,view[1]-(view[1]-view[0])*0.012,v,COL.red,3.5);
+  }
+  {
+    const {ctx,w,h}=prep(cvs.iG), map=makeMap(w,h,view,cumGRange);
+    grid(ctx,w,h,view,cumGRange,map);
+    const base=cumGAt(arg(-ZH,X));
+    const s=mode==="conv"?-1:1;
+    const f=z=>{const c=cumGAt(arg(z,X)); return s*(c-base);};
+    curve(ctx,w,view,map,f,COL.blue,{fill:"rgba(77,157,255,.12)"});
+    axisLabels(ctx,w,h,view,cumGRange,map);
+    vline(ctx,map,h,X,"rgba(77,157,255,.35)");
+  }
+  {
+    const rng=pad([cumPLo,cumPHi]);
+    const {ctx,w,h}=prep(cvs.iP), map=makeMap(w,h,view,rng);
+    grid(ctx,w,h,view,rng,map);
+    curve(ctx,w,view,map,z=>sampleArr(cumP,-ZH,DZ,z),COL.purple,{fill:"rgba(181,125,255,.14)"});
+    axisLabels(ctx,w,h,view,rng,map);
+    const vEnd=sampleArr(cumP,-ZH,DZ,view[1]);
+    dot(ctx,map,view[1]-(view[1]-view[0])*0.012,vEnd,COL.purple,4);
+    tag(ctx,w,h,hx.toFixed(3),map.X(view[1])-58,map.Y(vEnd)-8,COL.purple);
+  }
+
+  el("hval").textContent = "= " + hx.toFixed(5);
+  el("xread").textContent = "x = " + X.toFixed(2);
+  el("cpEnd").textContent = "ends at " + hx.toFixed(4);
+  el("cfEnd").textContent = "total " + totalF.toFixed(4);
+  el("cgEnd").textContent = "total " + totalG.toFixed(4) + " — fixed";
+  el("fArea").textContent = "area " + totalF.toFixed(4);
+  el("gArea").textContent = "area " + totalG.toFixed(4);
+  el("ovInfo").textContent = mode==="conv" ? "g flipped, then shifted by x" : "g shifted by x, not flipped";
+}
+
+/* --------------------------------------------------------------- inputs -- */
+
+function setMath(){
+  const gArgTxt = mode==="conv" ? "x \u2212 z" : "z \u2212 x";
+  el("expr").innerHTML =
+    '<i class="r">f</i>\u2217<i class="b">g</i>&thinsp;(<i>x</i>) =' +
+    '<span class="intsign">\u222b</span><span class="lim"><span>\u221e</span><span>\u2212\u221e</span></span>' +
+    '<i class="r">f</i>(<i>z</i>)\u2009<i class="b">g</i>(<i>' + gArgTxt.replace("z","z").replace("x","x") + '</i>)\u2009<i>dz</i>';
+  el("glegend").textContent = "g(" + gArgTxt + ")";
+  el("cgTitle").textContent = "\u222b g(" + gArgTxt + ") dz";
+  el("cpTitle").textContent = "\u222b f(z) g(" + gArgTxt + ") dz";
+}
+
+function readFns(){
+  let ok=true;
+  try{ fFn = compile(el("fin").value); el("ferr").textContent=""; }
+  catch(e){ el("ferr").textContent=e.message; ok=false; }
+  try{ gFn = compile(el("gin").value); el("gerr").textContent=""; }
+  catch(e){ el("gerr").textContent=e.message; ok=false; }
+  if(ok && fFn && gFn){ recompute(); draw(); }
+  else if(fFn && gFn){ draw(); }
+}
+
+const PRESETS = [
+  ["box \u2217 box \u2192 triangle", "rect(z)", "rect(z)"],
+  ["box \u2217 decaying exponential", "rect(z)", "exp(-2z)step(z)"],
+  ["gaussian \u2217 gaussian \u2192 wider gaussian", "exp(-z^2)", "exp(-z^2)"],
+  ["gaussian \u2217 box", "exp(-4z^2)", "rect(z/2)"],
+  ["noisy signal \u2217 box (a moving average)", "sin(2z)+0.35sin(9z)+0.25cos(15z)", "rect(z)"],
+  ["triangle \u2217 box", "tri(z)", "rect(z/1.5)"],
+  ["two bumps \u2217 spike pair", "exp(-3(z+1.5)^2)+exp(-3(z-1.5)^2)", "exp(-40z^2)"],
+  ["step \u2217 decaying exponential", "step(z)", "exp(-z)step(z)"],
+  ["sinc \u2217 sinc", "sinc(z)", "sinc(z)"],
+  ["asymmetric ramp \u2217 box (flip matters)", "z*rect(z/3)", "rect(z-0.5)"]
+];
+(function fillPresets(){
+  const s=el("preset");
+  PRESETS.forEach((p,i)=>{const o=document.createElement("option");o.value=String(i);o.textContent=p[0];s.appendChild(o);});
+  s.addEventListener("change",()=>{
+    const i=parseInt(s.value,10);
+    if(isNaN(i))return;
+    el("fin").value=PRESETS[i][1];
+    el("gin").value=PRESETS[i][2];
+    readFns();
+  });
+})();
+
+let typeTimer=null;
+const onType=()=>{ if(typeTimer)clearTimeout(typeTimer); typeTimer=setTimeout(readFns,90); };
+el("fin").addEventListener("input",onType);
+el("gin").addEventListener("input",onType);
+
+function setMode(m){
+  mode=m;
+  el("mConv").setAttribute("aria-pressed", String(m==="conv"));
+  el("mCorr").setAttribute("aria-pressed", String(m==="corr"));
+  setMath(); recompute(); draw();
+}
+el("mConv").addEventListener("click",()=>setMode("conv"));
+el("mCorr").addEventListener("click",()=>setMode("corr"));
+
+const slider=el("slider");
+slider.addEventListener("input",()=>{X=parseFloat(slider.value);draw();});
+
+el("play").addEventListener("click",()=>{
+  playing=!playing;
+  el("play").textContent = playing ? "Pause" : "Play";
+  if(playing){ lastT=performance.now(); requestAnimationFrame(tick); }
+});
+function tick(now){
+  if(!playing) return;
+  const dt=Math.min(0.05,(now-lastT)/1000); lastT=now;
+  const span=view[1]-view[0];
+  X += dir*dt*span*0.22;
+  if(X>view[1]){X=view[1];dir=-1;}
+  if(X<view[0]){X=view[0];dir=1;}
+  X=Math.max(-XH,Math.min(XH,X));
+  slider.value=String(X);
+  draw();
+  requestAnimationFrame(tick);
+}
+
+function setView(a,b){
+  const c=Math.max(0.5,Math.min(XH,(b-a)/2)), m=(a+b)/2;
+  view=[m-c,m+c];
+  rescale(); draw();
+}
+el("zin").addEventListener("click",()=>{const m=(view[0]+view[1])/2,r=(view[1]-view[0])/2*0.7;setView(m-r,m+r);});
+el("zout").addEventListener("click",()=>{const m=(view[0]+view[1])/2,r=(view[1]-view[0])/2/0.7;setView(m-r,m+r);});
+el("zreset").addEventListener("click",()=>setView(-6,6));
+
+// pointer: drag sets x on the sliding + result panels, pans elsewhere
+function bind(cv,kind){
+  let dragging=false, startPx=0, startView=null;
+  const toX = ev => {
+    const r=cv.getBoundingClientRect();
+    return view[0] + (ev.clientX-r.left)/r.width*(view[1]-view[0]);
+  };
+  cv.addEventListener("pointerdown",ev=>{
+    cv.setPointerCapture(ev.pointerId); dragging=true;
+    if(kind==="x"){ playing=false; el("play").textContent="Play";
+      X=Math.max(-XH,Math.min(XH,toX(ev))); slider.value=String(X); draw(); }
+    else { startPx=ev.clientX; startView=view.slice(); }
+  });
+  cv.addEventListener("pointermove",ev=>{
+    if(!dragging)return;
+    if(kind==="x"){ X=Math.max(-XH,Math.min(XH,toX(ev))); slider.value=String(X); draw(); }
+    else{
+      const r=cv.getBoundingClientRect();
+      const d=(ev.clientX-startPx)/r.width*(startView[1]-startView[0]);
+      view=[startView[0]-d,startView[1]-d]; rescale(); draw();
+    }
+  });
+  const up=ev=>{ dragging=false; };
+  cv.addEventListener("pointerup",up);
+  cv.addEventListener("pointercancel",up);
+  cv.addEventListener("wheel",ev=>{
+    ev.preventDefault();
+    const r=cv.getBoundingClientRect();
+    const at=view[0]+(ev.clientX-r.left)/r.width*(view[1]-view[0]);
+    const k=Math.exp(ev.deltaY*0.0016);
+    let lo=at+(view[0]-at)*k, hi=at+(view[1]-at)*k;
+    if(hi-lo<1) {const m=(lo+hi)/2;lo=m-.5;hi=m+.5;}
+    if(hi-lo>2*XH){lo=-XH;hi=XH;}
+    view=[lo,hi]; rescale(); draw();
+  },{passive:false});
+}
+Object.entries(cvs).forEach(([k,cv]) => bind(cv, (k==="ov"||k==="h") ? "x" : "pan"));
+
+window.addEventListener("keydown",ev=>{
+  if(document.activeElement && document.activeElement.tagName==="INPUT" && document.activeElement.type==="text") return;
+  const step=(view[1]-view[0])/200;
+  if(ev.key==="ArrowRight"){X=Math.min(XH,X+step*(ev.shiftKey?10:1));slider.value=String(X);draw();ev.preventDefault();}
+  if(ev.key==="ArrowLeft"){X=Math.max(-XH,X-step*(ev.shiftKey?10:1));slider.value=String(X);draw();ev.preventDefault();}
+  if(ev.key===" "){el("play").click();ev.preventDefault();}
+});
+
+let rAF=null;
+new ResizeObserver(()=>{ if(rAF)cancelAnimationFrame(rAF); rAF=requestAnimationFrame(draw); })
+  .observe(document.body);
+
+setMath();
+readFns();
+</script>
+</body>
+</html>
