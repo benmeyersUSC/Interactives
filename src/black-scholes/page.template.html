@@ -1,0 +1,1114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="From a coin-flip random walk to a Black–Scholes call: slide a geometric Brownian motion, discount it, weigh values by probability, cut at a strike, and watch walkers pile up into the lognormal.">
+  <title>Pricing a particle</title>
+  <style id="math-styles">__KATEX_CSS__</style>
+  <style>
+    /* Complete local styles keep this single-file explorer usable without a network. */
+    :root { color-scheme:light; --ink:#192d3b; --muted:#60717c; --faint:#7d8d97; --line:#dce4e8; --hair:#edf1f3; --paper:#f4f6f5;
+      --blue:#2262d6; --orange:#c2782b; --strike:#b0357b; --curve:#334f61; --ghost:#aab8c1; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--paper); color:var(--ink); font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; font-size:13px; line-height:1.45; }
+    h1,h2,h3,p,dl,dd,dt { margin:0; } button,input,select { font:inherit; color:inherit; } button { cursor:pointer; }
+    :focus-visible { outline:3px solid #658ee0; outline-offset:2px; }
+    [hidden] { display:none!important; }
+    .shell { max-width:1600px; margin:0 auto; padding:12px 18px 20px; }
+
+    .masthead { display:flex; align-items:center; gap:12px; padding:2px 0 12px; }
+    .brand-mark { width:22px; height:22px; flex:0 0 22px; display:flex; align-items:end; gap:2px; padding:4px; border-radius:6px; background:var(--ink); opacity:.5; }
+    .brand-mark i { display:block; width:3px; background:#dde8ee; border-radius:1px; }
+    .brand-mark i:nth-child(1) { height:5px; } .brand-mark i:nth-child(2) { height:12px; } .brand-mark i:nth-child(3) { height:8px; }
+    h1 { font-size:16px; font-weight:600; letter-spacing:-.015em; }
+    h1 span { font-weight:400; color:var(--muted); }
+    .masthead-actions { margin-left:auto; display:flex; align-items:center; gap:14px; font-size:11px; color:var(--faint); white-space:nowrap; }
+    .reset { border:1px solid var(--line); background:#fff; border-radius:6px; padding:5px 11px; font-size:12px; color:var(--muted); }
+    .reset:hover { background:#eef3f5; }
+
+    /* The instrument: controls sit beside or under the plot they drive, all on one screen. */
+    .instrument { display:grid; gap:12px; grid-template-columns:minmax(0,1fr) 300px minmax(0,1fr);
+      grid-template-areas:"outcome side discount" "normal side value"; }
+    .panel { background:#fff; border:1px solid var(--line); border-radius:10px; min-width:0; }
+    .sidebar { grid-area:side; padding:14px 16px 14px; }
+    #panel-outcome { grid-area:outcome; } #panel-discount { grid-area:discount; } #panel-normal { grid-area:normal; } #panel-value { grid-area:value; }
+    .chart-panel { padding:11px 14px 10px; display:flex; flex-direction:column; }
+    .group-title { font-size:11px; font-weight:650; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); margin-bottom:10px; }
+    .group-title span { text-transform:none; letter-spacing:0; font-weight:400; margin-left:6px; }
+    .chart-head { display:flex; align-items:baseline; gap:8px; min-width:0; }
+    .chart-index { font-size:10px; letter-spacing:.12em; color:var(--faint); font-weight:650; }
+    h2 { font-size:14px; font-weight:600; letter-spacing:-.01em; }
+    h2 .katex { font-size:1.02em; }
+    h2 .quiet { font-weight:400; color:var(--muted); }
+    .legend { display:flex; flex-wrap:wrap; gap:2px 14px; padding:5px 0 3px; font-size:11.5px; color:var(--muted); min-height:26px; }
+    .legend span { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+    .legend b { color:var(--ink); font-weight:600; font-variant-numeric:tabular-nums; }
+    .swatch { display:inline-block; width:16px; height:0; border-top:2px solid var(--curve); }
+    .swatch.mean { border-color:var(--blue); } .swatch.median { border-color:var(--orange); border-top-style:dashed; }
+    .swatch.ghost { border-color:var(--ghost); } .swatch.strike { border-color:var(--strike); }
+    .swatch.today { border-top:1px dotted var(--ink); }
+    .swatch.fill { height:9px; border:0; border-radius:2px; background:rgba(34,98,214,.2); }
+    .swatch.fill.above { background:rgba(176,53,123,.26); } .swatch.fill.below { background:rgba(51,79,97,.17); }
+    .swatch.fill.call { background:rgba(176,53,123,.42); } .swatch.fill.leg { background:rgba(176,53,123,.12); border-top:1.5px dashed var(--strike); border-radius:0 0 2px 2px; }
+    .replicate { margin-top:6px; padding:7px 10px; border-radius:7px; background:#f7f0f4; font-size:12px; line-height:1.5; color:var(--ink); }
+    .replicate.not-priced { background:#fff5dc; }
+    .plot { position:relative; height:clamp(185px, calc(50vh - 190px), 290px); }
+    .plot canvas { width:100%!important; height:100%!important; }
+    .drag-plot canvas { cursor:ew-resize; touch-action:pan-y; }
+    .plot-overlay { position:absolute; inset:30px 20px 40px 60px; display:flex; align-items:center; justify-content:center; text-align:center; color:var(--muted); font-size:12px; background:#ffffffee; padding:16px; border-radius:7px; }
+    .chart-foot { margin-top:auto; padding-top:6px; font-size:11px; color:var(--muted); line-height:1.5; }
+    .chart-foot strong { color:#455b69; font-weight:500; }
+
+    /* Parameter rows: label and value above a slider with fine ± steps. */
+    .param { display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"label num" "slider slider"; align-items:center; column-gap:8px; }
+    .param + .param { margin-top:12px; }
+    .param > label { grid-area:label; font-size:12.5px; font-weight:500; }
+    .symbol { color:var(--muted); margin-left:2px; }
+    .numeric { grid-area:num; display:flex; align-items:center; gap:4px; font-size:12px; color:var(--muted); }
+    .slider-row { grid-area:slider; display:flex; align-items:center; gap:6px; margin-top:2px; min-width:0; }
+    .param.inline { grid-template-columns:auto minmax(0,1fr) auto; grid-template-areas:"label slider num"; margin-top:6px; }
+    .param.inline .slider-row { margin-top:0; }
+    input[type=number] { width:64px; height:28px; padding:2px 6px; text-align:right; border:1px solid var(--line); border-radius:5px; background:#f9fbfc; color:var(--ink); font-variant-numeric:tabular-nums; }
+    select { height:28px; max-width:78px; border:1px solid var(--line); border-radius:5px; background:#f6f8f9; font-size:12px; padding:0 3px; color:var(--muted); }
+    .step-button { flex:0 0 26px; width:26px; height:26px; padding:0; border:1px solid var(--line); border-radius:6px; background:#f6f8f9; color:#506571; font-size:16px; line-height:1; }
+    .step-button:hover { background:#eaf0f4; }
+    input[type=range] { --progress:50%; --accent:var(--ink); flex:1; min-width:0; width:100%; height:26px; margin:0; background:transparent; appearance:none; -webkit-appearance:none; cursor:pointer; touch-action:pan-y; }
+    input[type=range]::-webkit-slider-runnable-track { height:4px; border-radius:4px; background:linear-gradient(to right,var(--accent) var(--progress),#e3e9ec var(--progress)); }
+    input[type=range]::-moz-range-track { height:4px; border-radius:4px; background:#e3e9ec; }
+    input[type=range]::-moz-range-progress { height:4px; border-radius:4px; background:var(--accent); }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:18px; height:18px; margin-top:-7px; background:#fff; border:3px solid var(--accent); border-radius:50%; box-shadow:0 1px 4px #192d3b24; }
+    input[type=range]::-moz-range-thumb { width:12px; height:12px; background:#fff; border:3px solid var(--accent); border-radius:50%; }
+    .presets { display:flex; flex-wrap:wrap; gap:4px; margin-top:7px; }
+    .presets button { border:1px solid var(--line); border-radius:5px; padding:3px 7px; background:#fff; font-size:11px; color:#546b79; }
+    .presets button[aria-pressed="true"] { border-color:#263f50; background:#263f50; color:#fff; }
+    .horizon-caption { display:flex; justify-content:space-between; gap:8px; margin-top:5px; font-size:10.5px; color:var(--faint); }
+    .horizon-caption output { color:#516877; font-variant-numeric:tabular-nums; }
+    .numbers { margin:4px 0 6px; display:grid; grid-template-columns:repeat(4,minmax(0,1fr) auto); gap:6px 14px; font-size:12px; color:var(--muted); max-width:1100px; }
+    .numbers dd { color:var(--ink); text-align:right; font-variant-numeric:tabular-nums; }
+    .side-note { margin-top:12px; font-size:11px; color:var(--faint); line-height:1.5; }
+
+    /* Discount and strike controls live in their own plot panels. */
+    .pricing-title { margin-top:18px; padding-top:14px; border-top:1px solid var(--hair); }
+    .market { margin-top:12px; padding:11px 12px 12px; border:1px solid var(--line); border-radius:9px; background:#f7f9fa; }
+    .market.on { background:#f2f6fe; border-color:#c7d7f5; }
+    .switch { position:relative; display:flex; align-items:center; gap:10px; cursor:pointer; }
+    .switch input { position:absolute; opacity:0; width:1px; height:1px; margin:0; }
+    .switch-track { position:relative; flex:0 0 40px; width:40px; height:23px; border-radius:23px; background:#c3ced5; transition:background .15s; }
+    .switch-track::after { content:""; position:absolute; top:3px; left:3px; width:17px; height:17px; border-radius:50%; background:#fff; box-shadow:0 1px 3px #0003; transition:transform .15s; }
+    .switch input:checked + .switch-track { background:var(--blue); }
+    .switch input:checked + .switch-track::after { transform:translateX(17px); }
+    .switch input:focus-visible + .switch-track { outline:3px solid #658ee0; outline-offset:2px; }
+    .switch strong { display:block; font-size:13.5px; font-weight:600; }
+    .switch small { display:block; font-size:11px; color:var(--muted); }
+    .market-explain { margin-top:8px; font-size:11.5px; color:var(--muted); line-height:1.5; }
+    .market-warning { margin-top:10px; padding:9px 10px 10px; border-radius:7px; background:#fff5dc; border:1px solid #efc35a; font-size:12px; line-height:1.5; color:var(--ink); }
+    .market-warning strong { font-weight:600; }
+    .market-warning button { margin-top:8px; border:1px solid #d6a53a; background:#fff; border-radius:6px; padding:4px 10px; font-size:11.5px; color:var(--ink); }
+    .market-warning button:hover { background:#fffaf0; }
+    .market-ok { margin-top:10px; font-size:12px; line-height:1.5; color:#1f4f9a; }
+    .total-flag { margin-left:6px; font-style:normal; font-size:10.5px; color:#6b4a00; background:#fff5dc; border:1px solid #efc35a; border-radius:4px; padding:0 5px; }
+    .strike-track { position:relative; height:26px; margin-top:1px; }
+    .strike-track input { --accent:var(--strike); position:absolute; top:0; left:calc(var(--left,54px) - 9px); width:calc(var(--width,300px) + 18px); }
+    .strike-track input::-webkit-slider-runnable-track { background:linear-gradient(to right,#e3e9ec var(--progress),rgba(176,53,123,.35) var(--progress)); }
+    .strike-row { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; margin-top:2px; font-size:11.5px; color:var(--muted); }
+    .strike-row label { font-weight:500; color:var(--ink); font-size:12.5px; }
+    .strike-row .numeric input { width:62px; }
+    .strike-row output { font-variant-numeric:tabular-nums; }
+    .strike-note { color:var(--strike); }
+
+    .method { margin-top:12px; }
+    .method summary { cursor:pointer; padding:13px 18px; font-size:13px; font-weight:500; }
+    .method summary span { font-weight:400; color:var(--muted); margin-left:8px; font-size:12px; }
+    .method-content { padding:2px 18px 18px; }
+    .math-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+    .math-equation { min-width:0; overflow-x:auto; overflow-y:hidden; padding:12px 14px; background:#f5f7f8; border-radius:6px; }
+    .math-equation label { display:block; font-size:11px; color:var(--muted); margin-bottom:6px; letter-spacing:.02em; }
+    .math-equation .katex-display { margin:4px 0; text-align:left; }
+    .math-equation .katex-display>.katex { text-align:left; }
+    .method h3 { font-size:12px; font-weight:600; margin:18px 0 8px; color:#455b69; letter-spacing:.02em; }
+    .method p { color:var(--muted); font-size:12px; margin-top:10px; max-width:1100px; }
+    .method ul { color:var(--muted); font-size:12px; margin:8px 0 0; padding-left:18px; max-width:1100px; }
+    .method li + li { margin-top:4px; }
+    .katex { font-size:1.06em; }
+    .footer { margin-top:12px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; color:#6a7d89; font-size:11px; }
+    a { color:inherit; text-underline-offset:3px; }
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+    .error { color:#9b342c; background:#fff0ec; padding:12px; border-radius:7px; margin-top:12px; }
+
+    @media (max-width:1180px) {
+      .instrument { grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-areas:"outcome discount" "side side" "normal value"; }
+      .sidebar { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); column-gap:22px; align-items:start; }
+      .sidebar .group-title { display:none; }
+      .numbers { grid-template-columns:repeat(2,minmax(0,1fr) auto); }
+      .sidebar .param + .param { margin-top:0; }
+      .market { grid-column:1/-1; display:grid; grid-template-columns:minmax(220px,auto) minmax(0,1fr); gap:0 18px; align-items:center; }
+      .market-explain { margin-top:0; }
+      .market-warning, .market-ok { grid-column:1/-1; }
+      .plot { height:clamp(190px, 30vh, 260px); }
+      .math-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    }
+    @media (max-width:760px) {
+      .shell { padding:8px 10px 16px; }
+      .masthead { flex-wrap:wrap; gap:8px; padding-bottom:8px; }
+      h1 span, .masthead-actions .status { display:none; }
+      .instrument { grid-template-columns:minmax(0,1fr); grid-template-areas:"outcome" "side" "discount" "value" "normal"; gap:10px; }
+      .sidebar { display:block; padding:10px 11px; }
+      .market { display:block; }
+      .market-explain { margin-top:6px; }
+      .numbers { grid-template-columns:minmax(0,1fr) auto; }
+      .sidebar .param { grid-template-columns:62px minmax(0,1fr) auto; grid-template-areas:"label slider num"; }
+      .sidebar .param + .param { margin-top:4px; }
+      .sidebar .param > label { font-size:12px; }
+      .sidebar .step-button { display:none; }
+      .sidebar .slider-row { margin-top:0; }
+      .presets { flex-wrap:nowrap; overflow-x:auto; margin-top:5px; padding-bottom:2px; }
+      .presets button { flex:0 0 auto; }
+      .horizon-caption { display:none; }
+      .plot { height:230px; }
+      .math-grid { grid-template-columns:minmax(0,1fr); }
+    }
+    /* 05 · Walkers */
+    .walkers { margin-top:12px; padding:12px 14px; }
+    .walk-head { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:2px 16px; }
+    .walk-body { display:grid; grid-template-columns:250px minmax(0,1fr); gap:16px; margin-top:6px; }
+    .walk-controls .param + .param { margin-top:8px; }
+    .walk-controls output { font-size:12px; color:var(--ink); font-variant-numeric:tabular-nums; }
+    .walk-rules { display:grid; gap:4px; margin-top:12px; }
+    .walk-rules label { display:flex; gap:7px; align-items:flex-start; padding:6px 8px; border:1px solid var(--line); border-radius:7px; font-size:12px; line-height:1.35; cursor:pointer; }
+    .walk-rules label:has(input:checked) { border-color:#263f50; background:#f1f5f7; }
+    .walk-rules input { margin:2px 0 0; accent-color:var(--ink); }
+    .walk-rules small { display:block; color:var(--muted); font-size:11px; }
+    .walk-checks { display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:10px; font-size:12px; }
+    .walk-checks label { display:inline-flex; gap:6px; align-items:center; cursor:pointer; }
+    .walk-checks input { margin:0; accent-color:var(--ink); }
+    .walk-actions { display:flex; gap:8px; margin-top:12px; }
+    .walk-actions button { border:1px solid var(--line); border-radius:7px; padding:7px 12px; font-size:12.5px; background:#fff; color:var(--ink); }
+    .walk-actions .primary { background:var(--ink); border-color:var(--ink); color:#fff; font-weight:600; }
+    .walk-actions .primary:hover { background:#263f50; }
+    .walk-note { margin-top:8px; font-size:11px; color:var(--muted); min-height:16px; }
+    .walk-stage { display:grid; grid-template-columns:minmax(0,1fr) 190px; min-width:0; }
+    .walk-plot, .walk-side { position:relative; height:clamp(300px,46vh,460px); }
+    .walk-side { border-left:1px solid var(--line); }
+    .walk-plot canvas, .walk-side canvas { position:absolute; inset:0; width:100%; height:100%; }
+    .walk-stage canvas { transition:opacity .15s; }
+    .walk-stage.stale canvas { opacity:.35; }
+    .swatch.pigment { height:8px; border:0; border-radius:2px; background:linear-gradient(90deg,rgba(35,58,74,.12),rgba(35,58,74,.55)); }
+    .swatch.median-walk { border-top:2.5px solid var(--orange); }
+    .swatch.mean-theory { border-top:2px dashed var(--blue); }
+    .swatch.fill.hist { background:rgba(51,79,97,.32); }
+    @media (max-width:1180px) {
+      .walk-body { grid-template-columns:minmax(0,1fr); }
+      .walk-controls { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); column-gap:18px; align-items:start; }
+      .walk-controls .param + .param { margin-top:0; }
+      .walk-rules, .walk-checks, .walk-actions, .walk-note { grid-column:1/-1; }
+      .walk-rules { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    }
+    @media (max-width:760px) {
+      .walk-controls { display:block; }
+      .walk-controls .param + .param { margin-top:8px; }
+      .walk-rules { grid-template-columns:minmax(0,1fr); }
+      .walk-stage { grid-template-columns:minmax(0,1fr) 92px; }
+      .walk-plot, .walk-side { height:300px; }
+    }
+    @media print { body { background:#fff; } .sidebar, .reset, .strike-track, .walk-controls { display:none; } .instrument { grid-template-columns:1fr 1fr; grid-template-areas:"outcome discount" "normal value"; } .plot { height:230px; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <h1>The shape of compounding <span>· and what it is worth today</span></h1>
+      <div class="masthead-actions"><span class="status">GBM · starting value S₀ = 1<span id="library-status"> · loading charts…</span></span><button class="reset" type="button" id="reset">Reset</button></div>
+    </header>
+
+    <section class="instrument" aria-label="Plots and the parameters that drive them">
+      <article class="panel chart-panel" id="panel-outcome">
+        <div class="chart-head"><span class="chart-index">01</span><h2>Outcome at the horizon <span class="quiet"><span data-tex="X=S_{\Delta t}/S_0">X = S/S₀</span></span></h2></div>
+        <div class="legend" aria-label="Legend"><span><i class="swatch median"></i>Median <b id="median-value">—</b></span><span><i class="swatch mean"></i>Mean <b id="mean-value">—</b></span><span><i class="swatch fill"></i>Below mean <b id="prob-value">—</b></span></div>
+        <div class="plot"><canvas id="price-chart" role="img" aria-label="Lognormal outcome density with median and mean markers"></canvas><div class="plot-overlay" id="price-overlay">Loading density chart…</div></div>
+        <p class="chart-foot" id="price-caption">The gap between the dashed median and the solid mean is the variance drag wedge.</p>
+      </article>
+
+      <form class="panel sidebar" id="stock-controls" onsubmit="return false" aria-label="Model parameters">
+        <h2 class="group-title">Stock <span>dP/P = μ dt + σ dW</span></h2>
+        <div class="param">
+          <label for="mu">Drift <span class="symbol">μ</span></label>
+          <div class="numeric"><input id="mu-number" type="number" min="-10" max="20" step="0.01" value="6.74" aria-label="Annual arithmetic drift, percent"><span>%</span></div>
+          <div class="slider-row"><button type="button" class="step-button" data-adjust="mu" data-direction="-1" aria-label="Decrease drift by 0.01 percentage points">−</button><input id="mu" type="range" min="-10" max="20" step="0.01" value="6.74" aria-label="Annual arithmetic drift, percent"><button type="button" class="step-button" data-adjust="mu" data-direction="1" aria-label="Increase drift by 0.01 percentage points">+</button></div>
+        </div>
+        <div class="param">
+          <label for="sigma">Volatility <span class="symbol">σ</span></label>
+          <div class="numeric"><input id="sigma-number" type="number" min="0" max="60" step="0.01" value="14.80" aria-label="Annual volatility, percent"><span>%</span></div>
+          <div class="slider-row"><button type="button" class="step-button" data-adjust="sigma" data-direction="-1" aria-label="Decrease volatility by 0.01 percentage points">−</button><input id="sigma" type="range" min="0" max="60" step="0.01" value="14.8" aria-label="Annual volatility, percent"><button type="button" class="step-button" data-adjust="sigma" data-direction="1" aria-label="Increase volatility by 0.01 percentage points">+</button></div>
+        </div>
+        <div class="horizon-group">
+        <div class="param horizon-control">
+          <label for="deltaT">Horizon <span class="symbol">Δt</span></label>
+          <div class="numeric"><input id="deltaT-number" type="number" min="0" max="40" step="any" value="10" aria-label="Horizon in selected units"><select id="horizon-unit" aria-label="Horizon units"><option value="days">days</option><option value="months">months</option><option value="years" selected>years</option></select></div>
+          <div class="slider-row"><button type="button" class="step-button" data-adjust="deltaT" data-direction="-1" aria-label="Decrease horizon in selected units">−</button><input id="deltaT" type="range" min="0" max="10000" step="1" value="8554" aria-label="Time horizon on a logarithmic scale"><button type="button" class="step-button" data-adjust="deltaT" data-direction="1" aria-label="Increase horizon in selected units">+</button></div>
+        </div>
+          <div class="presets" role="group" aria-label="Horizon presets"><button type="button" data-horizon="day" aria-pressed="false">1d</button><button type="button" data-horizon="three-days" aria-pressed="false">3d</button><button type="button" data-horizon="week" aria-pressed="false">1w</button><button type="button" data-horizon="month" aria-pressed="false">1m</button><button type="button" data-horizon="quarter" aria-pressed="false">3m</button><button type="button" data-horizon="year" aria-pressed="false">1y</button><button type="button" data-horizon="ten-years" aria-pressed="true">10y</button></div>
+          <div class="horizon-caption"><span>Log scale · finer at short horizons</span><output id="horizon-readout">10 years</output></div>
+        </div>
+        <h2 class="group-title pricing-title">Pricing <span>what the horizon is worth today</span></h2>
+        <div class="param">
+          <label for="r">Discount rate <span class="symbol">r</span></label>
+          <div class="numeric"><input id="r-number" type="number" min="-10" max="20" step="0.01" value="4.00" aria-label="Discount rate, percent"><span>%</span></div>
+          <div class="slider-row"><button type="button" class="step-button" data-adjust="r" data-direction="-1" aria-label="Decrease discount rate by 0.01 percentage points">−</button><input id="r" type="range" min="-10" max="20" step="0.01" value="4" aria-label="Continuously compounded discount rate, percent"><button type="button" class="step-button" data-adjust="r" data-direction="1" aria-label="Increase discount rate by 0.01 percentage points">+</button></div>
+        </div>
+        <section class="market" id="market-card" aria-label="Efficient-market check">
+          <label class="switch"><input type="checkbox" id="efficient" role="switch"><span class="switch-track" aria-hidden="true"></span><span><strong>Efficient market</strong><small>Ties the drift to the discount rate, μ = r</small></span></label>
+          <p class="market-explain">Today’s price should be the present value of the expected future price. Discounting at r, that needs μ = r.</p>
+          <div class="market-warning" id="market-warning" role="status" hidden>
+            <p><strong><span aria-hidden="true">⚠</span> Not efficient.</strong> <span id="market-warning-text"></span></p>
+            <button type="button" id="make-efficient">Set μ = r</button>
+          </div>
+          <p class="market-ok" id="market-ok" hidden><span aria-hidden="true">✓</span> <span id="market-ok-text"></span></p>
+        </section>
+      </form>
+
+      <article class="panel chart-panel" id="panel-discount">
+        <div class="chart-head"><span class="chart-index">03</span><h2>Present value <span class="quiet"><span data-tex="Y=e^{-r\Delta t}X">Y = e^(−rΔt)·X</span></span></h2></div>
+        <div class="legend" aria-label="Legend"><span><i class="swatch"></i>Today’s value g(y)</span><span><i class="swatch ghost"></i>At the horizon f(x)</span><span><i class="swatch mean"></i>E[Y] <b id="ey-value">—</b></span><span><i class="swatch today"></i>S₀ = 1</span><span><i class="swatch fill above"></i>Ends above K <b id="p-above">—</b></span></div>
+        <div class="plot drag-plot"><canvas id="discount-chart" role="img" aria-label="Density of the discounted outcome"></canvas><div class="plot-overlay" id="discount-overlay">Loading density chart…</div></div>
+        <p class="chart-foot" id="discount-caption">Discounting multiplies every outcome by D = e^(−rΔt).</p>
+      </article>
+
+      <article class="panel chart-panel" id="panel-normal">
+        <div class="chart-head"><span class="chart-index">02</span><h2>Standardized <span class="quiet"><span data-tex="Z=(\ln X-M)/S">Z = (ln X − M)/S</span></span></h2></div>
+        <div class="legend" aria-label="Legend"><span><i class="swatch"></i>φ(z)</span><span><i class="swatch mean"></i>Mean threshold <b id="z-value">—</b></span><span><i class="swatch fill"></i>Below threshold <b id="z-prob">—</b></span></div>
+        <div class="plot"><canvas id="normal-chart" role="img" aria-label="Standard normal density with the mean threshold"></canvas><div class="plot-overlay" id="normal-overlay">Loading density chart…</div></div>
+        <p class="chart-foot" id="normal-caption">The mean maps to Z = σ√Δt / 2.</p>
+      </article>
+
+      <article class="panel chart-panel" id="panel-value">
+        <div class="chart-head"><span class="chart-index">04</span><h2>Value-weighted <span class="quiet"><span data-tex="y\,g(y)">y·g(y)</span> · the call is the sliver above the strike leg</span></h2></div>
+        <div class="legend" aria-label="Legend"><span><i class="swatch fill call"></i>Call C <b id="call-value">—</b></span><span><i class="swatch fill leg"></i>Strike leg K·D·Φ(d₂) <b id="leg-value">—</b></span><span><i class="swatch fill below"></i>Below K <b id="area-below">—</b></span><span>Total E[Y] <b id="area-total">—</b><em class="total-flag" id="total-flag" hidden>⚠ not today’s price, 1</em></span></div>
+        <div class="plot drag-plot"><canvas id="value-chart" role="img" aria-label="Value-weighted discounted density with the strike"></canvas><div class="plot-overlay" id="value-overlay">Loading density chart…</div></div>
+        <div class="strike-track" id="strike-track"><input id="strike" type="range" min="0" max="5" step="any" value="0.67" aria-label="Strike position on the present-value axis"></div>
+        <div class="strike-row">
+          <label for="strike-number">Strike <span class="symbol">K</span></label>
+          <button type="button" class="step-button" data-adjust="strike" data-direction="-1" aria-label="Decrease strike by 0.01">−</button><span class="numeric"><input id="strike-number" type="number" min="0" max="1000" step="0.01" value="1.00" aria-label="Strike as a multiple of today's price"><span>× S₀</span></span><button type="button" class="step-button" data-adjust="strike" data-direction="1" aria-label="Increase strike by 0.01">+</button>
+          <output id="strike-pv">Today’s value of K: —</output><span class="strike-note" id="strike-note" hidden></span>
+        </div>
+        <p class="replicate" id="replicate">—</p>
+        <p class="chart-foot" id="value-caption">Each shaded area is an expected present value.</p>
+      </article>
+    </section>
+
+    <section class="panel walkers" id="walkers" aria-label="Random walkers">
+      <div class="walk-head">
+        <div class="chart-head"><span class="chart-index">05</span><h2>Walkers <span class="quiet">N coin-flip random walks on these parameters</span></h2></div>
+        <div class="legend" aria-label="Legend"><span><i class="swatch pigment"></i>Paths</span><span><i class="swatch median-walk"></i>Walkers’ median <b id="walk-median">—</b></span><span><i class="swatch median"></i>GBM median</span><span><i class="swatch mean"></i>Walkers’ mean <b id="walk-mean">—</b></span><span><i class="swatch mean-theory"></i>GBM mean</span><span><i class="swatch fill hist"></i>Where they end</span><span><i class="swatch"></i>Lognormal density</span></div>
+      </div>
+      <div class="walk-body">
+        <form class="walk-controls" onsubmit="return false" aria-label="Walker settings">
+          <div class="param"><label for="walk-mu">Drift <span class="symbol">μ</span></label><div class="numeric"><output data-mirror-out="mu">—</output></div><div class="slider-row"><input id="walk-mu" data-mirror="mu" type="range" min="-10" max="20" step="0.01" value="6.74" aria-label="Annual drift, percent, same as above"></div></div>
+          <div class="param"><label for="walk-sigma">Volatility <span class="symbol">σ</span></label><div class="numeric"><output data-mirror-out="sigma">—</output></div><div class="slider-row"><input id="walk-sigma" data-mirror="sigma" type="range" min="0" max="60" step="0.01" value="14.8" aria-label="Annual volatility, percent, same as above"></div></div>
+          <div class="param"><label for="walk-deltaT">Horizon <span class="symbol">Δt</span></label><div class="numeric"><output data-mirror-out="deltaT">—</output></div><div class="slider-row"><input id="walk-deltaT" data-mirror="deltaT" type="range" min="0" max="10000" step="1" value="8554" aria-label="Horizon on a logarithmic scale, same as above"></div></div>
+          <div class="param"><label for="walk-n">Walkers <span class="symbol">N</span></label><div class="numeric"><output id="walk-n-out">500</output></div><div class="slider-row"><input id="walk-n" type="range" min="1" max="3.30103" step="0.001" value="2.69897" aria-label="Number of walkers, logarithmic"></div></div>
+          <div class="param"><label for="walk-steps">Coin flips per walk</label><div class="numeric"><output id="walk-steps-out">250</output></div><div class="slider-row"><input id="walk-steps" type="range" min="1" max="3" step="0.001" value="2.39794" aria-label="Coin flips per walk, logarithmic"></div></div>
+          <div class="walk-rules" role="radiogroup" aria-label="Step rule">
+            <label><input type="radio" name="walk-rule" value="price" checked><span>Price steps × (1 + μΔt ± σ√Δt)<small>Plain compounding; −σ²/2 appears on its own</small></span></label>
+            <label><input type="radio" name="walk-rule" value="ito"><span>Log steps, drift μ − σ²/2<small>Itô’s correction built in</small></span></label>
+            <label><input type="radio" name="walk-rule" value="naive"><span>Log steps, drift μ<small>Forgets Itô: watch the median drift off</small></span></label>
+          </div>
+          <div class="walk-checks"><label><input type="checkbox" id="walk-discount"> Today’s money, × e^(−rt)</label><label><input type="checkbox" id="walk-log"> Log price axis</label></div>
+          <div class="walk-actions"><button type="button" class="primary" id="walk-release">Release 500 walkers</button><button type="button" id="walk-clear">Clear</button></div>
+          <p class="walk-note" id="walk-note"></p>
+        </form>
+        <div class="walk-stage" id="walk-stage">
+          <div class="walk-plot"><canvas id="walk-canvas" role="img" aria-label="Random walk paths"></canvas><canvas id="walk-overlay" aria-hidden="true"></canvas></div>
+          <div class="walk-side"><canvas id="walk-hist" role="img" aria-label="Sideways histogram of where the walkers end"></canvas></div>
+        </div>
+      </div>
+      <p class="chart-foot" id="walk-caption">Each walker flips a fair coin at every step.</p>
+    </section>
+
+    <details class="panel method" id="method">
+      <summary>Inside the model <span>Equations, assumptions &amp; how the plots are drawn</span></summary>
+      <div class="method-content">
+        <dl class="numbers method-numbers" aria-label="Model numbers">
+          <dt>M = (μ − σ²/2)Δt</dt><dd id="m-value">—</dd>
+          <dt>V = σ²Δt</dt><dd id="v-value">—</dd>
+          <dt>S = σ√Δt</dt><dd id="s-value">—</dd>
+          <dt>Mean / median = e^(V/2)</dt><dd id="wedge-value">—</dd>
+          <dt>D = e^(−rΔt)</dt><dd id="d-value">—</dd>
+          <dt>d₁</dt><dd id="d1-value">—</dd>
+          <dt>d₂ = d₁ − S</dt><dd id="d2-value">—</dd>
+        </dl>
+        <h3>The stock at the horizon</h3>
+        <div class="math-grid">
+          <div class="math-equation"><label>Outcome multiplier</label><div data-tex="X=\frac{S_{\Delta t}}{S_0}=e^{M+SZ},\quad Z\sim\mathcal{N}(0,1)" data-display="true"></div></div>
+          <div class="math-equation"><label>Horizon log-return mean, variance, s.d.</label><div data-tex="M=\left(\mu-\tfrac{\sigma^2}{2}\right)\Delta t,\;\; V=\sigma^2\Delta t,\;\; S=\sigma\sqrt{\Delta t}" data-display="true"></div></div>
+          <div class="math-equation"><label>Lognormal density · x &gt; 0</label><div data-tex="f(x)=\frac{1}{xS\sqrt{2\pi}}\exp\!\left[-\frac{(\ln x-M)^2}{2V}\right]" data-display="true"></div></div>
+          <div class="math-equation"><label>Median, mean and the wedge</label><div data-tex="\operatorname{med}X=e^{M},\quad \mathbb{E}[X]=e^{\mu\Delta t},\quad \frac{\mathbb{E}[X]}{\operatorname{med}X}=e^{V/2}" data-display="true"></div></div>
+          <div class="math-equation"><label>Probability below the mean · S &gt; 0</label><div data-tex="\Pr(X&lt;\mathbb{E}[X])=\Phi\!\left(\tfrac{S}{2}\right)" data-display="true"></div></div>
+          <div class="math-equation"><label>Standard normal density</label><div data-tex="\phi(z)=\frac{1}{\sqrt{2\pi}}\,e^{-z^2/2}" data-display="true"></div></div>
+        </div>
+        <h3>Present value, value weighting and the strike</h3>
+        <div class="math-grid">
+          <div class="math-equation"><label>Discount map and the density it produces</label><div data-tex="Y=DX,\;\; D=e^{-r\Delta t},\qquad g(y)=\frac{1}{D}\,f\!\left(\frac{y}{D}\right)" data-display="true"></div></div>
+          <div class="math-equation"><label>Weight the values, then integrate</label><div data-tex="\int_0^\infty y\,g(y)\,dy=\mathbb{E}[Y]=e^{(\mu-r)\Delta t}" data-display="true"></div></div>
+          <div class="math-equation"><label>The two areas at the strike</label><div data-tex="\int_{KD}^{\infty} y\,g\,dy=e^{(\mu-r)\Delta t}\Phi(d_1),\quad \int_0^{KD} y\,g\,dy=e^{(\mu-r)\Delta t}\Phi(-d_1)" data-display="true"></div></div>
+          <div class="math-equation"><label>The two standardized distances</label><div data-tex="d_1=\frac{\ln(S_0/K)+\left(\mu+\tfrac{\sigma^2}{2}\right)\Delta t}{\sigma\sqrt{\Delta t}},\quad d_2=d_1-\sigma\sqrt{\Delta t}" data-display="true"></div></div>
+          <div class="math-equation"><label>Probability of ending above the strike</label><div data-tex="\Pr(X&gt;K)=\int_{KD}^{\infty} g(y)\,dy=\Phi(d_2)" data-display="true"></div></div>
+          <div class="math-equation"><label>Efficient market: μ = r</label><div data-tex="\mathbb{E}[Y]=1=S_0,\qquad \text{areas}=\Phi(d_1),\;\Phi(-d_1)" data-display="true"></div></div>
+          <div class="math-equation"><label>The call: value above the strike minus the strike leg</label><div data-tex="C=\int_{KD}^{\infty}(y-KD)\,g(y)\,dy=\Phi(d_1)-Ke^{-r\Delta t}\,\Phi(d_2)" data-display="true"></div></div>
+          <div class="math-equation"><label>Replication (efficient market)</label><div data-tex="C=\underbrace{\Phi(d_1)}_{\text{shares}}\,S_0-\underbrace{Ke^{-r\Delta t}\Phi(d_2)}_{\text{borrowed}}" data-display="true"></div></div>
+          <div class="math-equation"><label>Put, by parity</label><div data-tex="P=C-S_0+Ke^{-r\Delta t}" data-display="true"></div></div>
+        </div>
+        <h3>Assumptions</h3>
+        <ul>
+          <li>The price follows geometric Brownian motion with constant drift <span data-tex="\mu">μ</span> and volatility <span data-tex="\sigma">σ</span>; there are no dividends or other cash flows. All values are in units of today’s price, <span data-tex="S_0=1">S₀ = 1</span>.</li>
+          <li>Discounting is continuous at a constant rate <span data-tex="r">r</span> over the same horizon: every outcome is multiplied by <span data-tex="D=e^{-r\Delta t}">D</span>. Discounting moves outcomes, not probabilities, so <span data-tex="g">g</span> still integrates to 1.</li>
+          <li>The strike <span data-tex="K">K</span> is an amount paid at the horizon, quoted as a multiple of <span data-tex="S_0">S₀</span>. On the present-value axes it sits at <span data-tex="KD">KD</span>, so it moves with the curves when you change <span data-tex="r">r</span>.</li>
+          <li>Efficient market: today’s price is the present value of the stock’s expected price at the horizon. Discounting at <span data-tex="r">r</span>, that requires <span data-tex="\mu=r">μ = r</span>. Otherwise <span data-tex="\mathbb{E}[Y]=e^{(\mu-r)\Delta t}\neq1">E[Y] ≠ 1</span>, and the check says how much more or less the stock should be worth today if its drift really were <span data-tex="\mu">μ</span>. The switch ties <span data-tex="\mu">μ</span> to <span data-tex="r">r</span>, which is the risk-neutral density that prices are weighed with.</li>
+          <li>With the switch on, plot 04 is the Black–Scholes formula. The value above the strike, Φ(d₁), is the number of shares that replicates the call. It is the probability of finishing in the money when outcomes are weighted by the stock’s value, because in those states you must deliver the stock. The dashed curve <span data-tex="KD\,g(y)">K·D·g(y)</span> is the strike’s value density. Its area above the strike, <span data-tex="Ke^{-r\Delta t}\Phi(d_2)">K·e^(−rΔt)·Φ(d₂)</span>, is the cash you borrow: the strike’s present value times the plain probability of paying it (plot 03). The sliver between the two curves is the call. The share count Φ(d₁) changes as the price moves and time passes; at expiry it is 1 in the money and 0 otherwise.</li>
+        </ul>
+        <h3>How the plots are drawn</h3>
+        <p>Plots 01, 03 and 04 share one horizontal axis, so a point in plot 01 and its discounted image in plot 03 can be compared directly. Axes change in discrete, rounded steps and only when the curves outgrow them or shrink to less than half of them, so a slider moves the curve rather than the frame. Axis changes ease in over a few frames. Each curve combines a linear grid with a logarithmic grid centred on its peak, so narrow peaks are not missed. Shading ends exactly at its threshold. Reported areas and probabilities are closed-form and include any part of a curve beyond the visible range.</p>
+        <p>The horizon slider uses log(1 + Δt / one day): short horizons get more room and zero stays reachable. A year is 365.25 days, a month 1/12 year and a quarter 1/4 year. The normal distribution function uses the Numerical Recipes complementary error function (fractional error below 1.2×10⁻⁷ everywhere, including the tails). At S = 0 every outcome equals the mean, so all four plots show point masses.</p>
+        <p>Built with <a href="https://www.chartjs.org/docs/latest/" target="_blank" rel="noopener noreferrer">Chart.js 4.5.1</a>, <a href="https://www.chartjs.org/chartjs-plugin-annotation/latest/" target="_blank" rel="noopener noreferrer">chartjs-plugin-annotation 3.1.0</a> and <a href="https://katex.org/" target="_blank" rel="noopener noreferrer">KaTeX</a>. All three, and the equation fonts, are embedded in this file, so it works offline.</p>
+      </div>
+    </details>
+    <p id="app-error" class="error" role="alert" hidden></p>
+    <p id="live-summary" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+    <noscript><p class="error">Enable JavaScript to move the parameters and draw the plots.</p></noscript>
+    <footer class="footer"><span>GBM explorer · starting value S₀ = 1 · constant μ, σ and r</span><span>Adaptive density rendering</span></footer>
+  </main>
+
+  <!--
+  Embedded libraries: Chart.js v4.5.1 (c) 2025 Chart.js Contributors;
+  chartjs-plugin-annotation v3.1.0 (c) 2024 chartjs-plugin-annotation Contributors.
+  MIT License
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+  THE SOFTWARE.
+  -->
+  <script type="text/plain" id="chart-library">__CHART_LIBRARY__</script>
+  <script type="text/plain" id="annotation-library">__ANNOTATION_LIBRARY__</script>
+  <script id="dashboard-code">
+  'use strict';
+  const DEFAULTS = Object.freeze({ mu:0.0674, sigma:0.148, deltaT:10, r:0.04, strike:1 });
+  window.state = { ...DEFAULTS, efficient:false };
+  const state = window.state;
+  const DAYS_PER_YEAR = 365.25, ONE_DAY = 1 / DAYS_PER_YEAR, MAX_YEARS = 40, SQRT2PI = Math.sqrt(2*Math.PI);
+  const HORIZON_LOG_SPAN = Math.log1p(MAX_YEARS / ONE_DAY);
+  const horizonFromSlider = value => ONE_DAY * Math.expm1(value / 10000 * HORIZON_LOG_SPAN);
+  const horizonToSlider = years => Math.log1p(years / ONE_DAY) / HORIZON_LOG_SPAN * 10000;
+  const PRESETS = {
+    day:{years:ONE_DAY,unit:'days'}, 'three-days':{years:3*ONE_DAY,unit:'days'},
+    week:{years:7*ONE_DAY,unit:'days'}, month:{years:1/12,unit:'months'},
+    quarter:{years:.25,unit:'months'}, year:{years:1,unit:'years'}, 'ten-years':{years:10,unit:'years'}
+  };
+  const LIMITS = { mu:[-.1,.2], sigma:[0,.6], deltaT:[0,MAX_YEARS], r:[-.1,.2], strike:[0,1000] };
+  const byId = id => document.getElementById(id);
+  const unitFactor = () => ({days:DAYS_PER_YEAR,months:12,years:1})[byId('horizon-unit').value];
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  const displayedState = { ...state };
+  let frameHandle = 0, lastFrameTime = 0, lastInputTime = 0;
+  window.renderStats = {frames:0,lastDuration:0,maxDuration:0};
+  const COLORS = { curve:'#334f61', ghost:'#aab8c1', blue:'#2262d6', orange:'#c2782b', strike:'#b0357b', ink:'#192d3b', text:'#60717c', grid:'#edf1f3',
+    fillMean:'rgba(34,98,214,0.14)', fillAbove:'rgba(176,53,123,0.17)', fillBelow:'rgba(51,79,97,0.10)', fillCall:'rgba(176,53,123,0.34)', fillLeg:'rgba(176,53,123,0.08)', wedge:'rgba(194,120,43,0.07)' };
+  const put = (id,value) => { const el=byId(id); if(el.textContent!==value) el.textContent=value; };
+  const fmt = (n,d=3) => n.toLocaleString('en-US',{ minimumFractionDigits:d, maximumFractionDigits:d });
+  const compact = n => Math.abs(n) >= 1000 ? n.toLocaleString('en-US',{ maximumFractionDigits:1, notation:'compact' }) : fmt(n,Math.abs(n)<.01 && n!==0 ? 5 : 3);
+  const pct = (p,d=2) => fmt(p*100,d)+'%';
+  function horizonLabel(n) {
+    if (n === 0) return '0 days';
+    if (n < 28 / DAYS_PER_YEAR) { const d=Number((n*DAYS_PER_YEAR).toFixed(2)); return d+' '+(d===1?'day':'days'); }
+    if (n < 1) { const m=Number((n*12).toFixed(2)); return m+' '+(m===1?'month':'months'); }
+    const y=Number(n.toFixed(2)); return y+' '+(y===1?'year':'years');
+  }
+  const tickNumber = n => n===0 ? '0' : (Math.abs(n)>=10000 || Math.abs(n)<.001) ? n.toExponential(1) : Number(n.toPrecision(4)).toString();
+  let priceChart, normalChart, discountChart, valueChart, announcementTimer;
+  const chartsReady = () => Boolean(priceChart && normalChart && discountChart && valueChart);
+
+  // Numerical Recipes erfcc: fractional error below 1.2e-7 everywhere, so tail probabilities stay accurate.
+  function erfc(x) {
+    const z=Math.abs(x), t=1/(1+.5*z);
+    const r=t*Math.exp(-z*z-1.26551223+t*(1.00002368+t*(.37409196+t*(.09678418+t*(-.18628806+t*(.27886807+t*(-1.13520398+t*(1.48851587+t*(-.82215223+t*.17087277)))))))));
+    return x>=0 ? r : 2-r;
+  }
+  const cdf = z => z===Infinity ? 1 : z===-Infinity ? 0 : .5*erfc(-z/Math.SQRT2);
+  const normalPDF = z => Math.exp(-.5*z*z) / SQRT2PI;
+
+  // Every displayed number comes from this one closed-form model.
+  function computeModel(p) {
+    const {mu,sigma,deltaT,r,strike:K} = p;
+    const M=(mu-sigma*sigma/2)*deltaT, V=sigma*sigma*deltaT, S=sigma*Math.sqrt(deltaT);
+    const degenerate=S===0;
+    const median=Math.exp(M), mean=Math.exp(mu*deltaT), mode=Math.exp(M-V);
+    const zMean=degenerate?null:S/2, pBelow=degenerate?0:cdf(S/2);
+    const ratio=Math.exp(V/2), wedgePercent=Math.expm1(V/2)*100, annualDrag=sigma*sigma/2;
+    // Discounting multiplies every outcome by D. The present expected value E[Y] equals
+    // today's price only when the drift equals the discount rate (the efficient-market case).
+    const D=Math.exp(-r*deltaT), MY=M-r*deltaT, EY=Math.exp((mu-r)*deltaT), strikePV=K*D;
+    let d1=null, d2=null, pAbove, above, below;
+    if (degenerate) { pAbove=mean>K?1:0; above=pAbove*EY; below=EY-above; }
+    else if (K<=0) { d1=Infinity; d2=Infinity; pAbove=1; above=EY; below=0; }
+    else { d1=(-Math.log(K)+(mu+sigma*sigma/2)*deltaT)/S; d2=d1-S; pAbove=cdf(d2); above=EY*cdf(d1); below=EY*cdf(-d1); }
+    const efficient=Math.abs(EY-1)<5e-4;
+    // Call = ∫ (y − K·D)⁺ g(y) dy: the value above the strike minus the strike leg K·D·P(X > K).
+    // Replication: hold `above` shares (Φ(d₁) when efficient) and borrow the strike leg.
+    const strikeLeg=strikePV*pAbove, call=above-strikeLeg;
+    return {mu,sigma,deltaT,r,K,M,V,S,degenerate,median,mean,mode,zMean,pBelow,ratio,wedgePercent,annualDrag,D,MY,EY,strikePV,d1,d2,pAbove,above,below,efficient,strikeLeg,call};
+  }
+  const lognormalPDF = (x,mLog,S) => x<=0 ? 0 : Math.exp(-.5*Math.pow((Math.log(x)-mLog)/S,2)) / (x*S*SQRT2PI);
+  const valuePDF = (y,mLog,S) => y<=0 ? 0 : Math.exp(-.5*Math.pow((Math.log(y)-mLog)/S,2)) / (S*SQRT2PI);
+
+  // Axes move in rounded steps, and only when the curves outgrow them or use less than half of them.
+  function niceStep(span,parts) {
+    const raw=span/parts, base=Math.pow(10,Math.floor(Math.log10(raw)));
+    for (const m of [1,2,2.5,5,10]) if (m*base>=raw*(1-1e-9)) return m*base;
+    return 10*base;
+  }
+  function niceAxis(lo,hi) {
+    if (!(hi>lo)) hi=lo+Math.max(1e-6,Math.abs(lo)*1e-3);
+    const step=niceStep(hi-lo,5);
+    return { min:Math.max(0,Math.floor(lo/step+1e-9)*step), max:Math.ceil(hi/step-1e-9)*step, step };
+  }
+  function stickyAxis(current,lo,hi) {
+    if (current && lo>=current.min-1e-12 && hi<=current.max*(1+1e-12) && hi-lo>=.5*(current.max-current.min)) return current;
+    return niceAxis(lo,hi);
+  }
+  function niceCeil(v) {
+    if (!(v>0) || !Number.isFinite(v)) return 1;
+    const base=Math.pow(10,Math.floor(Math.log10(v)));
+    for (const m of [1,1.2,1.5,2,2.5,3,4,5,6,8,10]) if (m*base>=v*(1-1e-12)) return m*base;
+    return 10*base;
+  }
+  function stickyHeight(current,need) {
+    if (current && need<=current.max && need>=.5*current.max) return current;
+    const max=niceCeil(need*1.06);
+    return { min:0, max, step:niceStep(max,4) };
+  }
+  function niceTicks(min,max,step) {
+    if (!(step>0)) step=niceStep(max-min,5);
+    const ticks=[];
+    for (let k=Math.ceil(min/step-1e-9); k*step<=max+step*1e-9 && ticks.length<30; k++) ticks.push({ value:Number((k*step).toPrecision(12)) });
+    return ticks;
+  }
+  // The visible value range covers the outcome at the horizon and its discounted image.
+  function valueRange(m) {
+    if (m.degenerate) return [0,2.5*Math.max(m.mean,m.EY,1)];
+    let lo=Infinity, hi=0;
+    for (const logMean of [m.M,m.MY]) {
+      lo=Math.min(lo,Math.exp(logMean-3.29*m.S));
+      hi=Math.max(hi,Math.min(2.5*Math.exp(logMean+m.V/2),Math.exp(logMean+3.29*m.S)));
+    }
+    if (lo<.35*hi) lo=0;
+    return [lo,hi];
+  }
+  const axisTarget = { x:null, price:null, discount:null, value:null };
+  const axisView = {};
+  function easeAxis(key,weight) {
+    const target=axisTarget[key]; let view=axisView[key];
+    if (!view || weight>=1) { axisView[key]={...target}; return true; }
+    view.min+=(target.min-view.min)*weight; view.max+=(target.max-view.max)*weight; view.step=target.step;
+    const tolerance=1e-4*(target.max-target.min);
+    if (Math.abs(view.min-target.min)<=tolerance && Math.abs(view.max-target.max)<=tolerance) { view.min=target.min; view.max=target.max; return true; }
+    return false;
+  }
+
+  // Sample in value and log-value coordinates; a log grid centred on each peak resolves narrow densities.
+  function samplePoints(lo,hi,fn,logCenters,S,extras) {
+    const xs=[lo,hi];
+    for (const x of extras) if (x>=lo && x<=hi) xs.push(x);
+    for (let i=1;i<240;i++) xs.push(lo+(hi-lo)*i/240);
+    if (S>0) for (const c of logCenters) {
+      const a=Math.max(Math.log(Math.max(lo,Number.MIN_VALUE)),c-8*S), b=Math.min(Math.log(hi),c+8*S);
+      if (b>a) for (let i=0;i<=320;i++) xs.push(Math.exp(a+(b-a)*i/320));
+    }
+    xs.sort((a,b)=>a-b);
+    const points=[]; let last=NaN;
+    for (const x of xs) { if (x===last || x<lo || x>hi) continue; last=x; points.push({x,y:fn(x)}); }
+    return points;
+  }
+  // A shaded region ends exactly on its boundaries.
+  function region(points,a,b,fn) {
+    if (!points.length) return [];
+    const lo=Math.max(a,points[0].x), hi=Math.min(b,points[points.length-1].x);
+    if (!(hi>lo)) return [];
+    const out=[{x:lo,y:fn(lo)}];
+    for (const p of points) if (p.x>lo && p.x<hi) out.push(p);
+    out.push({x:hi,y:fn(hi)});
+    return out;
+  }
+  function trapezoid(points) { let sum=0; for (let i=1;i<points.length;i++) sum+=(points[i].x-points[i-1].x)*(points[i].y+points[i-1].y)/2; return sum; }
+  function areaMedian(points) {
+    const total=trapezoid(points); if (!(total>0)) return null;
+    let sum=0;
+    for (let i=1;i<points.length;i++) {
+      const piece=(points[i].x-points[i-1].x)*(points[i].y+points[i-1].y)/2;
+      if (sum+piece>=total/2) { const t=piece>0?(total/2-sum)/piece:0; return points[i-1].x+t*(points[i].x-points[i-1].x); }
+      sum+=piece;
+    }
+    return points[points.length-1].x;
+  }
+  const maxY = points => points.reduce((m,p)=>Math.max(m,p.y),0);
+
+  function syncControls(except) {
+    for (const key of ['mu','sigma','r','deltaT']) {
+      const value=key==='deltaT' ? horizonToSlider(state.deltaT) : state[key]*100;
+      const slider=byId(key), number=byId(key+'-number');
+      slider.value=value; setProgress(slider,value);
+      slider.setAttribute('aria-valuetext',key==='deltaT'?horizonLabel(state.deltaT):fmt(value,2)+' percent');
+      if (key==='deltaT') {
+        number.max=MAX_YEARS*unitFactor();
+        if (number!==except) number.value=Number((state.deltaT*unitFactor()).toFixed(5));
+      } else if (number!==except) number.value=value.toFixed(2);
+    }
+    const strikeNumber=byId('strike-number'); if (strikeNumber!==except) strikeNumber.value=state.strike.toFixed(2);
+    byId('efficient').checked=state.efficient;
+    put('horizon-readout',horizonLabel(state.deltaT));
+    document.querySelectorAll('[data-mirror]').forEach(el=>{ const key=el.dataset.mirror, value=key==='deltaT'?horizonToSlider(state.deltaT):state[key]*100; el.value=value; setProgress(el,value); });
+    document.querySelectorAll('[data-mirror-out]').forEach(el=>{ const key=el.dataset.mirrorOut; el.textContent=key==='deltaT'?horizonLabel(state.deltaT):fmt(state[key]*100,2)+'%'; });
+    document.querySelectorAll('[data-horizon]').forEach(button=>button.setAttribute('aria-pressed',String(Math.abs(state.deltaT-PRESETS[button.dataset.horizon].years)<1e-10)));
+  }
+  function setProgress(slider,value) {
+    const min=Number(slider.min), max=Number(slider.max);
+    slider.style.setProperty('--progress',(max>min?Math.max(0,Math.min(1,(value-min)/(max-min)))*100:0)+'%');
+  }
+  // Coalesce input events to one draw per screen frame. Interpolate the model,
+  // not chart control points, so every intermediate curve is a valid density.
+  function requestUpdate() {
+    lastInputTime=performance.now();
+    walkParamsChanged();
+    if (!frameHandle) { lastFrameTime=lastInputTime; frameHandle=requestAnimationFrame(renderFrame); }
+  }
+  function renderFrame(now) {
+    frameHandle=0;
+    const elapsed=Math.min(64,Math.max(1,now-lastFrameTime)); lastFrameTime=now;
+    const weight=1-Math.exp(-elapsed/38), axisWeight=reducedMotion.matches?1:1-Math.exp(-elapsed/60);
+    const immediate=reducedMotion.matches || now-lastInputTime>210 || state.sigma===0 || state.deltaT===0;
+    if (immediate) Object.assign(displayedState,state);
+    else {
+      for (const key of ['mu','sigma','r']) displayedState[key]+=(state[key]-displayedState[key])*weight;
+      const logTime=Math.log1p(displayedState.deltaT/ONE_DAY);
+      displayedState.deltaT=ONE_DAY*Math.expm1(logTime+(Math.log1p(state.deltaT/ONE_DAY)-logTime)*weight);
+      displayedState.strike=state.strike; // Direct manipulation: the strike follows the pointer exactly.
+    }
+    const settled=immediate || (['mu','sigma','r'].every(key=>Math.abs(state[key]-displayedState[key])<1e-7) && Math.abs(state.deltaT-displayedState.deltaT)<1e-6);
+    if (settled) Object.assign(displayedState,state);
+    const axesSettled=updateCharts(displayedState,axisWeight);
+    if (!settled || !axesSettled) frameHandle=requestAnimationFrame(renderFrame);
+  }
+  function lineMarker(value,color,{dashed=false,label='',position='start',width=2,display=true}={}) {
+    return { type:'line', scaleID:'x', value, borderColor:color, borderWidth:width, borderDash:dashed?[6,5]:[], adjustScaleRange:false, display,
+      label:{ display:Boolean(label), content:label, position, backgroundColor:'#ffffffe8', color:COLORS.ink, font:{size:10.5,weight:'500'}, padding:3, yAdjust:position==='start'?2:-2 } };
+  }
+  // Label a shaded region (between `top` and `bottom`, or down to zero) at its area median.
+  function regionLabel(top,bottom,value,chart,xAxis) {
+    const band=top.map((p,i)=>({x:p.x,y:p.y-(bottom?bottom[i].y:0)}));
+    const x=areaMedian(band), area=chart.chartArea||{width:400,height:200}, yMax=chart.options.scales.y.max||1;
+    const widthPx=band.length ? (band[band.length-1].x-band[0].x)/(xAxis.max-xAxis.min)*area.width : 0;
+    const high=x===null?0:valueAt(top,x), low=x===null||!bottom?0:valueAt(bottom,x);
+    return { type:'label', xValue:x??0, yValue:low+(high-low)*.45, content:fmt(value,3), color:COLORS.ink, font:{size:12,weight:'600'}, backgroundColor:'#ffffffc4', padding:{x:4,y:2}, borderRadius:3,
+      display:x!==null && widthPx>=46 && (high-low)/yMax*area.height>=18 };
+  }
+  function valueAt(points,x) {
+    for (let i=1;i<points.length;i++) if (points[i].x>=x) { const a=points[i-1], b=points[i], t=b.x>a.x?(x-a.x)/(b.x-a.x):0; return a.y+t*(b.y-a.y); }
+    return points.length ? points[points.length-1].y : 0;
+  }
+  const crosshair = { id:'crosshair', afterDatasetsDraw(chart) {
+    const active=chart.tooltip && chart.tooltip.getActiveElements(); if (!active || !active.length) return;
+    const x=active[0].element.x, {top,bottom}=chart.chartArea, ctx=chart.ctx;
+    ctx.save(); ctx.strokeStyle='rgba(25,45,59,.28)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x,top); ctx.lineTo(x,bottom); ctx.stroke(); ctx.restore();
+  } };
+  const alignStrike = { id:'alignStrike', afterLayout(chart) {
+    const area=chart.chartArea, track=byId('strike-track'); if (!area) return;
+    track.style.setProperty('--left',area.left+'px'); track.style.setProperty('--width',(area.right-area.left)+'px');
+  } };
+  function makeChart(id,datasets,xTitle,yTitle,curveIndex,tip,extraPlugins=[]) {
+    const chart=new Chart(byId(id), {
+      type:'line', data:{ datasets }, plugins:[crosshair,...extraPlugins],
+      options:{ responsive:true, maintainAspectRatio:false, animation:false, parsing:false, normalized:false,
+        interaction:{ mode:'nearest',axis:'x',intersect:false },
+        layout:{padding:{top:4,right:14}},
+        scales:{
+          x:{ type:'linear',min:0,max:1,afterBuildTicks:scale=>{ scale.ticks=niceTicks(scale.min,scale.max,(scale.chart.$steps||{}).x); },grid:{display:false},border:{color:'#dce4e8'},title:{display:true,text:xTitle,color:COLORS.text,font:{size:10.5},padding:{top:3}},ticks:{color:COLORS.text,autoSkip:false,maxRotation:0,font:{size:10.5},callback:value=>tickNumber(value)} },
+          y:{ min:0,max:1,afterFit:scale=>{scale.width=56;},afterBuildTicks:scale=>{ scale.ticks=niceTicks(0,scale.max,(scale.chart.$steps||{}).y); },grid:{color:COLORS.grid},border:{display:false},title:{display:true,text:yTitle,color:COLORS.text,font:{size:10.5}},ticks:{color:COLORS.text,autoSkip:false,font:{size:10.5},callback:value=>tickNumber(value)} }
+        },
+        plugins:{ legend:{display:false}, annotation:{annotations:{}}, tooltip:{filter:item=>item.datasetIndex===curveIndex,backgroundColor:'#213848',padding:8,displayColors:false,
+          callbacks:{ title:items=>items.length ? tip.title(items[0].parsed.x) : '', label:item=>tip.label(item.parsed.x,item.parsed.y) } } }
+      }
+    });
+    chart.$steps={x:0,y:0};
+    return chart;
+  }
+  const fillDataset = (color,order=2) => ({ data:[], borderWidth:0, pointRadius:0, fill:'origin', backgroundColor:color, order });
+  const curveDataset = (color,width=2,order=1) => ({ data:[], borderWidth:width, borderColor:color, pointRadius:0, pointHitRadius:14, fill:false, order, borderJoinStyle:'round', borderCapStyle:'round' });
+  function applyAxes(chart,xAxis,yAxis) {
+    chart.options.scales.x.min=xAxis.min; chart.options.scales.x.max=xAxis.max; chart.$steps.x=xAxis.step;
+    chart.options.scales.y.max=yAxis.max; chart.$steps.y=yAxis.step;
+  }
+
+  // All parameters, readouts, coordinates and chart updates flow through this routine.
+  function updateCharts(model=state,axisWeight=1) {
+    const renderStart=performance.now();
+    const m=computeModel(model);
+    window.metrics=Object.freeze(m);
+    const {degenerate}=m;
+
+    // Readouts sit in the legends, next to the marks they describe.
+    put('median-value',compact(m.median)+'×'); put('mean-value',compact(m.mean)+'×'); put('prob-value',pct(m.pBelow));
+    put('m-value',fmt(m.M,4)); put('v-value',fmt(m.V,4)); put('s-value',fmt(m.S,4)); put('wedge-value',compact(m.ratio)+'×');
+    put('d-value',fmt(m.D,4)); put('d1-value',m.d1===null?'—':Number.isFinite(m.d1)?fmt(m.d1,4):'∞'); put('d2-value',m.d2===null?'—':Number.isFinite(m.d2)?fmt(m.d2,4):'∞');
+    put('z-value',degenerate?'undefined':'Z = '+fmt(m.zMean,3)); put('z-prob',pct(m.pBelow));
+    put('ey-value',compact(m.EY)); put('p-above',pct(m.pAbove));
+    put('discount-caption',degenerate ? 'One certain outcome; discounting moves it to '+compact(m.EY)+'.' :
+      'Discounting multiplies every outcome by D = e^(−rΔt) = '+fmt(m.D,3)+': the curve slides left and grows taller. Probabilities do not change.');
+    byId('total-flag').hidden=m.efficient;
+    // Efficient-market check: price today = present value of the expected price at the horizon.
+    const gap=m.EY-1, size=Math.abs(gap)*100, sizeText=(size>=1000?compact(size):fmt(size,size<10?2:1))+'%';
+    byId('market-card').classList.toggle('on',state.efficient);
+    byId('market-warning').hidden=m.efficient; byId('market-ok').hidden=!m.efficient;
+    if (!m.efficient) put('market-warning-text','If '+fmt(m.mu*100,2)+'% is its true drift, the stock should be worth '+sizeText+(gap>0?' more':' less')+' today: E[Y] = '+compact(m.EY)+', price 1.');
+    else put('market-ok-text',state.efficient ? 'μ = r = '+fmt(m.r*100,2)+'%: E[Y] is exactly today’s price, 1, so each area in plot 04 is a price.' : 'μ = r: E[Y] equals today’s price, 1.');
+    put('call-value',compact(m.call)); put('leg-value',compact(m.strikeLeg)); put('area-below',compact(m.below)); put('area-total',compact(m.EY));
+    byId('replicate').classList.toggle('not-priced',!m.efficient);
+    put('replicate',m.efficient ? 'To sell this call, replicate it: hold Δ = Φ(d₁) = '+fmt(m.above,3)+' shares (the value above K) and borrow K·e^(−rΔt)·Φ(d₂) = '+fmt(m.strikeLeg,3)+'. Cost: '+fmt(m.call,3)+' = C.' :
+      '⚠ '+fmt(m.call,3)+' is the call’s expected discounted payoff under drift μ, not its price. Turn on Efficient market to price and replicate it.');
+    put('strike-pv','Today’s value of K: '+compact(m.strikePV));
+    put('price-caption',degenerate ? 'A single outcome at '+fmt(m.mean,4)+'× has 100% probability; the coincident markers show this point mass.' :
+      'The mean is '+fmt(m.wedgePercent,1)+'% above the median (the variance drag wedge). Log-growth drag: '+fmt(m.annualDrag*100,3)+' points per year.');
+    put('normal-caption',degenerate ? 'Standardization (ln X − M) / S is undefined when S = 0.' : 'The mean maps to Z = σ√Δt / 2 = '+fmt(m.zMean,4)+'. The shaded window omits 0.0233% below z = −3.5.');
+    put('value-caption',m.efficient ? 'C = ∫(y − K·D)⁺ g(y) dy = Φ(d₁) − K·e^(−rΔt)·Φ(d₂): the value above the strike ('+fmt(m.above,3)+') minus the strike leg under the dashed curve. Below K: '+fmt(m.below,3)+'. All three add to today’s price, 1.' :
+      'Sums of discounted value: call + strike leg + below K = E[Y] = e^((μ−r)Δt) = '+compact(m.EY)+'. A price only in an efficient market, where the total is 1.');
+
+    let axesSettled=true;
+    if (chartsReady()) {
+      const [lo,hi]=valueRange(m);
+      axisTarget.x=stickyAxis(axisTarget.x,lo,hi);
+      axesSettled=easeAxis('x',axisWeight) && axesSettled;
+      const xAxis=axisView.x;
+      const f=x=>lognormalPDF(x,m.M,m.S), g=y=>lognormalPDF(y,m.MY,m.S), h=y=>valuePDF(y,m.MY,m.S);
+      const pricePoints=degenerate?[]:samplePoints(xAxis.min,xAxis.max,f,[m.M-m.V],m.S,[m.median,m.mean,m.mode]);
+      const discountPoints=degenerate?[]:samplePoints(xAxis.min,xAxis.max,g,[m.MY-m.V],m.S,[Math.exp(m.MY),m.EY,1,m.strikePV]);
+      const valuePoints=degenerate?[]:samplePoints(xAxis.min,xAxis.max,h,[m.MY],m.S,[Math.exp(m.MY),m.EY,m.strikePV]);
+      axisTarget.price=degenerate?{min:0,max:1,step:.25}:stickyHeight(axisTarget.price,maxY(pricePoints));
+      axisTarget.discount=degenerate?{min:0,max:1,step:.25}:stickyHeight(axisTarget.discount,Math.max(maxY(discountPoints),maxY(pricePoints)));
+      axisTarget.value=degenerate?{min:0,max:1,step:.25}:stickyHeight(axisTarget.value,maxY(valuePoints));
+      for (const key of ['price','discount','value']) axesSettled=easeAxis(key,axisWeight) && axesSettled;
+      const inView=x=>x>=xAxis.min && x<=xAxis.max;
+      for (const id of ['price','discount','value']) byId(id+'-overlay').hidden=true;
+      byId('normal-overlay').hidden=!degenerate;
+      byId('normal-overlay').textContent='No standardization at S = 0. Every outcome is the same.';
+
+      // 01 · the outcome at the horizon.
+      applyAxes(priceChart,xAxis,axisView.price);
+      priceChart.data.datasets[0].data=degenerate?[]:region(pricePoints,-Infinity,m.mean,f);
+      priceChart.data.datasets[1].data=pricePoints;
+      priceChart.options.scales.y.ticks.display=!degenerate;
+      priceChart.options.scales.y.title.text=degenerate?'Point mass':'Density f(x)';
+      priceChart.options.plugins.annotation.annotations={
+        wedge:{type:'box',xMin:m.median,xMax:m.mean,backgroundColor:COLORS.wedge,borderWidth:0,drawTime:'beforeDatasetsDraw',display:!degenerate,adjustScaleRange:false},
+        mean:lineMarker(m.mean,COLORS.blue,{label:degenerate?'Mean = median':'Mean',display:inView(m.mean)}),
+        median:lineMarker(m.median,COLORS.orange,{dashed:true,display:!degenerate&&inView(m.median)})
+      };
+
+      // 02 · the same probability on the standard normal scale.
+      normalChart.$steps.x=1; normalChart.$steps.y=.1;
+      normalChart.data.datasets[0].data=degenerate?[]:region(NORMAL_POINTS,-Infinity,m.zMean,normalPDF);
+      normalChart.data.datasets[1].data=degenerate?[]:NORMAL_POINTS;
+      normalChart.options.scales.y.max=.5;
+      normalChart.options.plugins.annotation.annotations=degenerate?{}:{threshold:lineMarker(m.zMean,COLORS.blue,{label:'Z = '+fmt(m.zMean,3)})};
+
+      // 03 · the discount map: every outcome is multiplied by D, so the curve slides left and grows taller.
+      applyAxes(discountChart,xAxis,axisView.discount);
+      discountChart.data.datasets[0].data=degenerate?[]:region(discountPoints,m.strikePV,Infinity,g);
+      discountChart.data.datasets[1].data=pricePoints;
+      discountChart.data.datasets[2].data=discountPoints;
+      discountChart.options.scales.y.ticks.display=!degenerate;
+      discountChart.options.scales.y.title.text=degenerate?'Point mass':'Density g(y)';
+      const arrowY=axisView.discount.max*.6, arrowLength=Math.abs(m.mean-m.EY)/(xAxis.max-xAxis.min);
+      discountChart.options.plugins.annotation.annotations={
+        today:lineMarker(1,'rgba(25,45,59,.6)',{width:1,dashed:true,label:'S₀ = 1',position:'end',display:!m.efficient&&inView(1)}),
+        arrow:{type:'line',xMin:m.mean,xMax:m.EY,yMin:arrowY,yMax:arrowY,borderColor:'rgba(34,98,214,.75)',borderWidth:1.5,adjustScaleRange:false,
+          display:arrowLength>.04 && inView(m.mean) && inView(m.EY),
+          arrowHeads:{end:{display:true,length:7,width:4,fill:true}},
+          label:{display:true,content:'× '+fmt(m.D,3),position:'center',yAdjust:-10,backgroundColor:'transparent',color:COLORS.ink,font:{size:10.5}}},
+        futureMean:lineMarker(m.mean,'rgba(34,98,214,.3)',{width:1,display:!degenerate&&inView(m.mean)&&arrowLength>.04}),
+        pvMean:lineMarker(m.EY,COLORS.blue,{label:m.efficient?'E[Y] = S₀ = 1':'E[Y]',display:inView(m.EY)}),
+        strike:lineMarker(m.strikePV,COLORS.strike,{display:inView(m.strikePV)})
+      };
+
+      // 04 · weight each present value by its density; the areas split E[Y] at the strike.
+      applyAxes(valueChart,xAxis,axisView.value);
+      const below=degenerate?[]:region(valuePoints,-Infinity,m.strikePV,h), above=degenerate?[]:region(valuePoints,m.strikePV,Infinity,h);
+      const leg=above.map(point=>({x:point.x,y:m.strikePV*g(point.x)}));  // the strike's value density K·D·g(y), meets y·g(y) at y = K·D
+      valueChart.data.datasets[0].data=below; valueChart.data.datasets[1].data=above; valueChart.data.datasets[2].data=leg; valueChart.data.datasets[3].data=valuePoints;
+      valueChart.options.scales.y.ticks.display=!degenerate;
+      valueChart.options.scales.y.title.text=degenerate?'Point mass':'Value density y·g(y)';
+      valueChart.options.plugins.annotation.annotations={
+        pointMass:lineMarker(m.EY,COLORS.curve,{label:'Value '+compact(m.EY),display:degenerate&&inView(m.EY)}),
+        strike:lineMarker(m.strikePV,COLORS.strike,{label:'K = '+fmt(m.K,2),display:inView(m.strikePV)}),
+        callLabel:regionLabel(above,leg,m.call,valueChart,xAxis),
+        legLabel:regionLabel(leg,null,m.strikeLeg,valueChart,xAxis),
+        belowLabel:regionLabel(below,null,m.below,valueChart,xAxis)
+      };
+
+      priceChart.update('none'); normalChart.update('none'); discountChart.update('none'); valueChart.update('none');
+
+      // The strike slider is laid over the plot's own x-axis, so its thumb sits under the strike line.
+      const strikeSlider=byId('strike');
+      strikeSlider.min=xAxis.min; strikeSlider.max=xAxis.max;
+      const clampedPV=Math.max(xAxis.min,Math.min(xAxis.max,m.strikePV));
+      if (Number(strikeSlider.value)!==clampedPV) strikeSlider.value=clampedPV;
+      setProgress(strikeSlider,clampedPV);
+      strikeSlider.setAttribute('aria-valuetext','Strike '+fmt(m.K,2)+' times today’s price, worth '+fmt(m.strikePV,3)+' today');
+      const offScale=m.strikePV>xAxis.max?'Strike is off the plot to the right →':m.strikePV<xAxis.min?'← Strike is off the plot to the left':'';
+      byId('strike-note').hidden=!offScale; put('strike-note',offScale);
+
+      byId('price-chart').setAttribute('aria-label',degenerate?'A point mass at '+fmt(m.mean,4)+' times the starting value.':'Lognormal outcome density. Median '+fmt(m.median,4)+', mean '+fmt(m.mean,4)+'; '+pct(m.pBelow)+' of outcomes lie below the mean.');
+      byId('discount-chart').setAttribute('aria-label','Discounted outcome density. Discount factor '+fmt(m.D,4)+'; expected present value '+fmt(m.EY,4)+' against today’s price 1; probability of ending above the strike '+pct(m.pAbove)+'.');
+      byId('value-chart').setAttribute('aria-label','Value-weighted density. Area above the strike '+fmt(m.above,4)+', below '+fmt(m.below,4)+', total '+fmt(m.EY,4)+'.');
+      byId('normal-chart').setAttribute('aria-label',degenerate?'Standardization is undefined for a deterministic outcome.':'Standard normal density; mean threshold Z = '+fmt(m.zMean,4)+'.');
+    }
+    clearTimeout(announcementTimer);
+    announcementTimer=setTimeout(()=>put('live-summary',horizonLabel(m.deltaT)+': median '+fmt(m.median,3)+', mean '+fmt(m.mean,3)+'. Discounted at '+fmt(m.r*100,2)+'%: expected present value '+fmt(m.EY,3)+'; call at strike '+fmt(m.K,2)+': '+fmt(m.call,3)+'.'+(m.efficient?'':' Not an efficient-market price.')),220);
+    window.renderStats.frames++;
+    window.renderStats.lastDuration=performance.now()-renderStart;
+    window.renderStats.maxDuration=Math.max(window.renderStats.maxDuration,window.renderStats.lastDuration);
+    return axesSettled;
+  }
+  window.updateCharts = updateCharts;
+  window.computeModel = computeModel;
+
+  const NORMAL_POINTS=Array.from({length:401},(_,i)=>{ const x=-3.5+7*i/400; return {x,y:normalPDF(x)}; });
+  function setParameter(key,value,except) {
+    if (!Number.isFinite(value)) return;
+    if (key!=='deltaT') value=Math.round(value*10000)/10000;
+    state[key]=Math.max(LIMITS[key][0],Math.min(LIMITS[key][1],value));
+    if (state.efficient && key==='mu') state.r=state.mu;   // Efficient market: the drift is the discount rate.
+    if (state.efficient && key==='r') state.mu=state.r;
+    syncControls(except); requestUpdate();
+  }
+  function nudge(key,direction,fast=false) {
+    const increment=key==='deltaT' ? (byId('horizon-unit').value==='days'?1:.01)/unitFactor() : key==='strike' ? .01 : .0001;
+    setParameter(key,state[key]+direction*increment*(fast?10:1));
+  }
+  for (const key of ['mu','sigma','r','deltaT']) {
+    const slider=byId(key), number=byId(key+'-number');
+    slider.addEventListener('input',()=>setParameter(key,key==='deltaT'?horizonFromSlider(Number(slider.value)):Number(slider.value)/100));
+    slider.addEventListener('keydown',event=>{
+      const direction={ArrowRight:1,ArrowUp:1,ArrowLeft:-1,ArrowDown:-1}[event.key];
+      if (direction && (key!=='deltaT'||event.shiftKey)) { event.preventDefault(); nudge(key,direction,event.shiftKey); }
+    });
+    number.addEventListener('input',()=>{
+      if (!number.validity.valid || number.value==='') return;
+      setParameter(key,Number(number.value)/(key==='deltaT'?unitFactor():100),number);
+    });
+    number.addEventListener('change',()=>{
+      const value=number.value===''||!Number.isFinite(Number(number.value))?state[key]:Number(number.value)/(key==='deltaT'?unitFactor():100);
+      setParameter(key,value); // Clamp invalid entries on commit; keep typing responsive.
+    });
+  }
+  // The strike is a payment at the horizon; the plots show it at its present value K·D.
+  const currentD=()=>Math.exp(-state.r*state.deltaT);
+  const strikeSlider=byId('strike'), strikeNumber=byId('strike-number');
+  strikeSlider.addEventListener('input',()=>setParameter('strike',Number(strikeSlider.value)/currentD()));
+  strikeSlider.addEventListener('keydown',event=>{
+    const direction={ArrowRight:1,ArrowUp:1,ArrowLeft:-1,ArrowDown:-1}[event.key];
+    if (direction) { event.preventDefault(); nudge('strike',direction,event.shiftKey); }
+  });
+  strikeNumber.addEventListener('input',()=>{ if (strikeNumber.validity.valid && strikeNumber.value!=='') setParameter('strike',Number(strikeNumber.value),strikeNumber); });
+  strikeNumber.addEventListener('change',()=>setParameter('strike',strikeNumber.value===''?state.strike:Number(strikeNumber.value)));
+  const setEfficient=on=>{ state.efficient=on; if (on) state.mu=state.r; syncControls(); requestUpdate(); };
+  byId('efficient').addEventListener('change',event=>setEfficient(event.target.checked));
+  byId('make-efficient').addEventListener('click',()=>{ setEfficient(true); byId('efficient').focus(); });
+  document.querySelectorAll('[data-adjust]').forEach(button=>button.addEventListener('click',event=>nudge(button.dataset.adjust,Number(button.dataset.direction),event.shiftKey)));
+  document.querySelectorAll('[data-horizon]').forEach(button=>button.addEventListener('click',()=>{
+    const preset=PRESETS[button.dataset.horizon]; byId('horizon-unit').value=preset.unit; setParameter('deltaT',preset.years);
+  }));
+  byId('horizon-unit').addEventListener('change',()=>syncControls());
+  byId('reset').addEventListener('click',()=>{ Object.assign(state,DEFAULTS,{efficient:false}); byId('horizon-unit').value='years'; syncControls(); requestUpdate(); });
+  reducedMotion.addEventListener('change',()=>requestUpdate());
+  // Drag anywhere on plots 03 and 04 to move the strike.
+  function enableStrikeDrag(chart) {
+    const canvas=chart.canvas; let pointer=null;
+    const place=event=>{ const x=chart.scales.x.getValueForPixel(event.offsetX); setParameter('strike',Math.max(0,x)/currentD()); };
+    canvas.addEventListener('pointerdown',event=>{
+      const area=chart.chartArea;
+      if (!area || event.offsetX<area.left-10 || event.offsetX>area.right+10 || event.offsetY<area.top-4 || event.offsetY>area.bottom+6) return;
+      pointer=event.pointerId; canvas.setPointerCapture(pointer); place(event); event.preventDefault();
+    });
+    canvas.addEventListener('pointermove',event=>{ if (event.pointerId===pointer) place(event); });
+    for (const type of ['pointerup','pointercancel','lostpointercapture']) canvas.addEventListener(type,()=>{ pointer=null; });
+  }
+  // ---------- 05 · Walkers: N coin-flip walks on the same parameters. Paths leave pigment; endpoints fill a sideways histogram. ----------
+  const WALK_PAD={left:50,right:8,top:10,bottom:30}, WALK_BINS=60, WALK_SECONDS=2.6, PIGMENT='#233a4a', WALK_FONT='10.5px Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+  const walk={batches:[],view:null,raf:0,autoTimer:0,used:false,stale:false,empirical:null,stats:{frames:0,lastFrame:0,maxFrame:0}};
+  window.walkers=walk;
+  const walkEls={stage:byId('walk-stage'),plot:byId('walk-canvas'),overlay:byId('walk-overlay'),hist:byId('walk-hist'),N:byId('walk-n'),steps:byId('walk-steps'),discount:byId('walk-discount'),log:byId('walk-log')};
+  const walkRule=()=>(document.querySelector('input[name="walk-rule"]:checked')||{value:'price'}).value;
+  const walkCount=()=>Math.round(Math.pow(10,Number(walkEls.N.value)));
+  const walkSteps=()=>Math.round(Math.pow(10,Number(walkEls.steps.value)));
+  const walkKey=()=>[state.mu,state.sigma,state.deltaT,state.r,walkRule()].join('|');
+  const pigmentAlpha=N=>Math.min(.35,5/Math.pow(N,.8));
+  const displayFactor=(view,t)=>view.disc?Math.exp(-view.r*t):1;
+  function computeWalkView() {
+    const T=state.deltaT, s=state.sigma, disc=walkEls.discount.checked, log=walkEls.log.checked, rule=walkRule();
+    const drift=state.mu-(disc?state.r:0), S=s*Math.sqrt(T), lift=rule==='naive'?s*s*T/2:0, M=(drift-s*s/2)*T+lift;
+    let lo=Math.exp(Math.min(0,M)-3.2*S), hi=Math.max(Math.exp(Math.max(0,M)+3.2*S),Math.exp(drift*T+lift)*1.08,1.02);
+    if (log) { if (hi/lo<1.03) { lo/=1.015; hi*=1.015; } }
+    else { if (lo<.35*hi) lo=0; const axis=niceAxis(lo,hi); lo=axis.min; hi=axis.max; }
+    return {T,sigma:s,mu:state.mu,r:state.r,disc,log,rule,lo,hi,key:walkKey()};
+  }
+  function walkCanvas(canvas) {
+    const rect=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1, w=Math.max(1,Math.round(rect.width*dpr)), h=Math.max(1,Math.round(rect.height*dpr));
+    let resized=false; if (canvas.width!==w || canvas.height!==h) { canvas.width=w; canvas.height=h; resized=true; }
+    const ctx=canvas.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
+    return {ctx,w:rect.width,h:rect.height,resized};
+  }
+  function walkMap(view,w,h) {
+    const f=v=>view.log?Math.log(Math.max(v,1e-300)):v, a=f(view.lo), b=f(view.hi);
+    const left=WALK_PAD.left, right=w-WALK_PAD.right, top=WALK_PAD.top, bottom=h-WALK_PAD.bottom;
+    const yu=u=>top+(1-(u-a)/(b-a))*(bottom-top);
+    return {f,a,b,left,right,top,bottom,yu,x:t=>left+t/view.T*(right-left),y:v=>yu(f(v))};
+  }
+  function walkTicks(view) {
+    if (!view.log) return niceTicks(view.lo,view.hi,niceStep(view.hi-view.lo,5)).map(tick=>tick.value);
+    const k0=Math.floor(Math.log10(view.lo)), k1=Math.ceil(Math.log10(view.hi));
+    for (const set of [[1],[1,2,5],[1,1.5,2,3,5,7]]) {
+      const out=[]; for (let k=k0;k<=k1;k++) for (const m of set) { const v=m*Math.pow(10,k); if (v>=view.lo && v<=view.hi) out.push(v); }
+      if (out.length>=4) return out;
+    }
+    return Array.from({length:5},(_,i)=>Math.exp(Math.log(view.lo)+(Math.log(view.hi)-Math.log(view.lo))*i/4));
+  }
+  function timeTicks(T) {
+    const unit=T>=2?{f:1,s:'y'}:T>=2/12?{f:12,s:'mo'}:{f:DAYS_PER_YEAR,s:'d'}, span=T*unit.f, step=niceStep(span,5), ticks=[];
+    for (let k=0;k*step<=span*(1+1e-9);k++) ticks.push({t:k*step/unit.f,label:tickNumber(Number((k*step).toPrecision(10)))+unit.s});
+    return ticks;
+  }
+  function drawWalkGrid(ctx,map,view,w,h) {
+    ctx.clearRect(0,0,w,h);
+    ctx.font=WALK_FONT; ctx.fillStyle=COLORS.text; ctx.strokeStyle=COLORS.grid; ctx.lineWidth=1;
+    ctx.textAlign='right'; ctx.textBaseline='middle';
+    for (const v of walkTicks(view)) { const y=Math.round(map.y(v))+.5; ctx.beginPath(); ctx.moveTo(map.left,y); ctx.lineTo(map.right,y); ctx.stroke(); ctx.fillText(tickNumber(v),map.left-6,y); }
+    ctx.textBaseline='top';
+    for (const tick of timeTicks(view.T)) { const x=map.x(tick.t); ctx.textAlign=x>map.right-14?'right':x<map.left+14?'left':'center'; ctx.fillText(tick.label,x,map.bottom+6); }
+    ctx.strokeStyle='#dce4e8'; ctx.beginPath(); ctx.moveTo(map.left,map.bottom+.5); ctx.lineTo(map.right,map.bottom+.5); ctx.stroke();
+    ctx.save(); ctx.translate(11,(map.top+map.bottom)/2); ctx.rotate(-Math.PI/2); ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(view.disc?'e^(−rt)·S / S₀':'S / S₀',0,0); ctx.restore();
+  }
+  function clipPlot(ctx,map) { ctx.beginPath(); ctx.rect(map.left,map.top,map.right-map.left,map.bottom-map.top); ctx.clip(); }
+  // Redraw every stored path (recorded at up to 200 points each) after a resize or an axis change.
+  function drawStoredPaths(ctx,map,view) {
+    ctx.save(); clipPlot(ctx,map); ctx.strokeStyle=PIGMENT; ctx.lineWidth=1; ctx.lineJoin='round';
+    for (const b of walk.batches) {
+      const R1=b.R+1, last=b.done?b.R:Math.floor(b.step/b.stride), xs=[], fs=[];
+      for (let j=0;j<=last;j++) { const t=Math.min(j*b.stride,b.n)*b.dt; xs.push(map.x(t)); fs.push(displayFactor(view,t)); }
+      ctx.globalAlpha=b.alpha;
+      for (let i=0;i<b.N;i++) { ctx.beginPath(); for (let j=0;j<=last;j++) { const y=map.y(b.rec[i*R1+j]*fs[j]); if (j) ctx.lineTo(xs[j],y); else ctx.moveTo(xs[j],y); } ctx.stroke(); }
+    }
+    ctx.restore(); ctx.globalAlpha=1;
+  }
+  function redrawWalkers() {
+    if (!walk.view) walk.view=computeWalkView();
+    const view=walk.view, plot=walkCanvas(walkEls.plot);
+    if (!(view.T>0)) { plot.ctx.clearRect(0,0,plot.w,plot.h); walkCanvas(walkEls.overlay).ctx.clearRect(0,0,plot.w,plot.h); const hist=walkCanvas(walkEls.hist); hist.ctx.clearRect(0,0,hist.w,hist.h);
+      plot.ctx.font='12px Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'; plot.ctx.fillStyle=COLORS.text; plot.ctx.textAlign='center'; plot.ctx.fillText('Set a horizon above zero to release walkers.',plot.w/2,plot.h/2); return; }
+    const map=walkMap(view,plot.w,plot.h);
+    drawWalkGrid(plot.ctx,map,view,plot.w,plot.h); drawStoredPaths(plot.ctx,map,view);
+    drawWalkOverlay(); drawWalkHist(); updateWalkReadouts();
+  }
+  function clearWalkers() {
+    cancelAnimationFrame(walk.raf); walk.raf=0;
+    walk.batches=[]; walk.empirical=null; walk.view=computeWalkView(); walk.stale=false; walkEls.stage.classList.remove('stale');
+    redrawWalkers();
+  }
+  function releaseWalkers() {
+    if (!(state.deltaT>0)) { put('walk-note','Set a horizon above zero to release walkers.'); return; }
+    if (!walk.view || walk.view.key!==walkKey()) clearWalkers();
+    const view=walk.view, N=walkCount(), rule=view.rule;
+    let n=walkSteps();
+    const minSteps=rule==='price'?Math.ceil(4*view.sigma*view.sigma*view.T):1, raised=n<minSteps; n=Math.max(n,minSteps);
+    const stride=Math.max(1,Math.ceil(n/200)), R=Math.ceil(n/stride);
+    const b={N,n,dt:view.T/n,rule,stride,R,step:0,start:performance.now(),S:new Float64Array(N).fill(1),X:new Float64Array(N),rec:new Float32Array(N*(R+1)),
+      medians:new Float64Array(n+1),means:new Float64Array(n+1),alpha:pigmentAlpha(N),done:false,final:null};
+    for (let i=0;i<N;i++) b.rec[i*(R+1)]=1;
+    b.medians[0]=1; b.means[0]=1;
+    walk.batches.push(b); walk.used=true; walk.stale=false; walkEls.stage.classList.remove('stale');
+    put('walk-note',raised?'Flips raised to '+n+' so every price stays positive.':'');
+    if (!walk.raf) walk.raf=requestAnimationFrame(walkFrame);
+  }
+  // One coin flip for every walker in a batch.
+  function stepBatch(b) {
+    const view=walk.view, N=b.N, S=b.S, X=b.X, vol=view.sigma*Math.sqrt(b.dt), grow=view.mu*b.dt;
+    const logDrift=(b.rule==='naive'?view.mu:view.mu-view.sigma*view.sigma/2)*b.dt;
+    let sum=0;
+    if (b.rule==='price') for (let i=0;i<N;i++) { S[i]*=1+grow+(Math.random()<.5?-vol:vol); sum+=S[i]; }
+    else for (let i=0;i<N;i++) { X[i]+=logDrift+(Math.random()<.5?-vol:vol); S[i]=Math.exp(X[i]); sum+=S[i]; }
+    b.step++;
+    const sorted=Float64Array.from(S).sort(), mid=N>>1;
+    b.medians[b.step]=N%2?sorted[mid]:(sorted[mid-1]+sorted[mid])/2; b.means[b.step]=sum/N;
+    if (b.step%b.stride===0 || b.step===b.n) { const j=b.step===b.n?b.R:b.step/b.stride, R1=b.R+1; for (let i=0;i<N;i++) b.rec[i*R1+j]=S[i]; }
+  }
+  function walkFrame(now) {
+    walk.raf=0;
+    const view=walk.view; if (!view || !(view.T>0)) return;
+    const started=performance.now(), plot=walkCanvas(walkEls.plot);
+    if (plot.resized) redrawWalkers();
+    const map=walkMap(view,plot.w,plot.h), ctx=plot.ctx;
+    ctx.save(); clipPlot(ctx,map); ctx.strokeStyle=PIGMENT; ctx.lineWidth=1; ctx.lineJoin='round';
+    for (const b of walk.batches) {
+      if (b.done) continue;
+      const target=Math.min(b.n,Math.max(b.step+1,Math.floor(b.n*(now-b.start)/(WALK_SECONDS*1000))));
+      const k=target-b.step, N=b.N, width=(k+1)*2, pts=new Float32Array(N*width);
+      let t=b.step*b.dt, x=map.x(t), factor=displayFactor(view,t);
+      for (let i=0;i<N;i++) { pts[i*width]=x; pts[i*width+1]=map.y(b.S[i]*factor); }
+      for (let j=1;j<=k;j++) {
+        stepBatch(b); t=b.step*b.dt; x=map.x(t); factor=displayFactor(view,t);
+        for (let i=0;i<N;i++) { const o=i*width+j*2; pts[o]=x; pts[o+1]=map.y(b.S[i]*factor); }
+      }
+      // One stroke per walker, so overlapping paths build pigment instead of merging into one pass.
+      ctx.globalAlpha=b.alpha;
+      for (let i=0;i<N;i++) { const o=i*width; ctx.beginPath(); ctx.moveTo(pts[o],pts[o+1]); for (let j=1;j<=k;j++) ctx.lineTo(pts[o+j*2],pts[o+j*2+1]); ctx.stroke(); }
+      if (b.step>=b.n) { b.done=true; b.final=Float64Array.from(b.S); walk.empirical=null; }
+    }
+    ctx.restore(); ctx.globalAlpha=1;
+    drawWalkOverlay(); drawWalkHist(); updateWalkReadouts();
+    const spent=performance.now()-started; walk.stats.frames++; walk.stats.lastFrame=spent; walk.stats.maxFrame=Math.max(walk.stats.maxFrame,spent);
+    if (walk.batches.some(b=>!b.done)) walk.raf=requestAnimationFrame(walkFrame);
+  }
+  function drawWalkOverlay() {
+    const view=walk.view; if (!view || !(view.T>0)) return;
+    const layer=walkCanvas(walkEls.overlay), ctx=layer.ctx, map=walkMap(view,layer.w,layer.h), s2=view.sigma*view.sigma;
+    ctx.clearRect(0,0,layer.w,layer.h);
+    ctx.save(); clipPlot(ctx,map);
+    const theory=(fn,color,dash)=>{ ctx.beginPath(); for (let i=0;i<=160;i++) { const t=view.T*i/160, y=map.y(fn(t)*displayFactor(view,t)); if (i) ctx.lineTo(map.x(t),y); else ctx.moveTo(map.x(t),y); }
+      ctx.setLineDash(dash); ctx.strokeStyle=color; ctx.lineWidth=1.6; ctx.stroke(); ctx.setLineDash([]); };
+    theory(t=>Math.exp((view.mu-s2/2)*t),COLORS.orange,[6,4]);
+    theory(t=>Math.exp(view.mu*t),COLORS.blue,[3,3]);
+    const latest=walk.batches[walk.batches.length-1];
+    if (latest) {
+      const trace=(values,color)=>{ ctx.beginPath(); for (let k=0;k<=latest.step;k++) { const t=k*latest.dt, y=map.y(values[k]*displayFactor(view,t)); if (k) ctx.lineTo(map.x(t),y); else ctx.moveTo(map.x(t),y); }
+        ctx.lineJoin='round'; ctx.strokeStyle='rgba(255,255,255,.85)'; ctx.lineWidth=4.5; ctx.stroke(); ctx.strokeStyle=color; ctx.lineWidth=2; ctx.stroke(); };
+      trace(latest.means,COLORS.blue); trace(latest.medians,COLORS.orange);
+      if (!latest.done) { const t=latest.step*latest.dt, x=map.x(t), factor=displayFactor(view,t); ctx.fillStyle='rgba(34,98,214,.55)';
+        for (let i=0;i<latest.N;i++) ctx.fillRect(x-1.2,map.y(latest.S[i]*factor)-1.2,2.4,2.4); }
+    }
+    ctx.restore();
+    if (!walk.batches.length) { ctx.font='12px Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'; ctx.fillStyle=COLORS.text; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('Release walkers to send them out from S₀ = 1',(map.left+map.right)/2,(map.top+map.bottom)/2); }
+  }
+  // Median and mean over every walker that has finished, in the axis's units.
+  function walkEmpirical() {
+    if (walk.empirical) return walk.empirical;
+    const ends=walk.batches.filter(b=>b.final).map(b=>b.final); let n=0; for (const a of ends) n+=a.length;
+    if (!n) return null;
+    const all=new Float64Array(n); let k=0, sum=0; for (const a of ends) for (let i=0;i<a.length;i++) { all[k++]=a[i]; sum+=a[i]; }
+    all.sort(); const f=displayFactor(walk.view,walk.view.T), median=n%2?all[n>>1]:(all[(n>>1)-1]+all[n>>1])/2;
+    return walk.empirical={n,median:median*f,mean:sum/n*f};
+  }
+  function drawWalkHist() {
+    const view=walk.view; if (!view || !(view.T>0)) return;
+    const layer=walkCanvas(walkEls.hist), ctx=layer.ctx, w=layer.w, map=walkMap(view,w,layer.h);
+    ctx.clearRect(0,0,w,layer.h);
+    // Coin flips land on a lattice (log spacing 2σ√Δt); each bin spans at least two lattice points so the bars don't comb.
+    const lattice=Math.max(0,...walk.batches.filter(x=>x.final).map(x=>2*view.sigma*Math.sqrt(x.dt)));
+    const level=Math.exp((view.mu-view.sigma*view.sigma/2)*view.T)*displayFactor(view,view.T), spacing=view.log?lattice:lattice*level;
+    const bins=spacing>0?Math.max(12,Math.min(WALK_BINS,Math.floor((map.b-map.a)/(2*spacing)))):WALK_BINS;
+    const a=map.a, b=map.b, du=(b-a)/bins, counts=new Float64Array(bins), fT=displayFactor(view,view.T);
+    let total=0, above=0, below=0;
+    for (const batch of walk.batches) if (batch.final) for (let i=0;i<batch.N;i++) { const u=map.f(batch.final[i]*fT); total++;
+      if (u>=b) above++; else if (u<a) below++; else counts[Math.min(bins-1,Math.floor((u-a)/du))]++; }
+    // The GBM density at the horizon, in the axis's own coordinate: value, or log value.
+    const s=view.sigma*Math.sqrt(view.T), m=(view.mu-(view.disc?view.r:0)-view.sigma*view.sigma/2)*view.T;
+    const pdf=u=>s===0?0:view.log?normalPDF((u-m)/s)/s:lognormalPDF(u,m,s);
+    let peak=0; for (let i=0;i<=240;i++) peak=Math.max(peak,pdf(a+(b-a)*i/240));
+    if (total) for (let i=0;i<bins;i++) peak=Math.max(peak,counts[i]/(total*du));
+    const left=1, scale=peak>0?(w-left-10)/peak:0;
+    ctx.fillStyle='rgba(51,79,97,.32)';
+    for (let i=0;i<bins;i++) if (counts[i]) { const y0=map.yu(a+(i+1)*du), y1=map.yu(a+i*du); ctx.fillRect(left,y0+.5,counts[i]/(total*du)*scale,Math.max(.5,y1-y0-1)); }
+    if (s>0) { ctx.beginPath(); for (let i=0;i<=240;i++) { const u=a+(b-a)*i/240, x=left+pdf(u)*scale, y=map.yu(u); if (i) ctx.lineTo(x,y); else ctx.moveTo(x,y); } ctx.strokeStyle=COLORS.curve; ctx.lineWidth=1.5; ctx.stroke(); }
+    const marker=(v,color,dash)=>{ const y=map.y(v); if (!(y>=map.top && y<=map.bottom)) return; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.setLineDash(dash); ctx.strokeStyle=color; ctx.lineWidth=1.5; ctx.stroke(); ctx.setLineDash([]); };
+    marker(Math.exp(m),COLORS.orange,[6,4]); marker(Math.exp(m+s*s/2),COLORS.blue,[3,3]);
+    const emp=walkEmpirical(); if (emp) { marker(emp.median,COLORS.orange,[]); marker(emp.mean,COLORS.blue,[]); }
+    ctx.font=WALK_FONT; ctx.fillStyle=COLORS.text; ctx.textAlign='left';
+    ctx.textBaseline='top'; if (above) ctx.fillText('↑ '+above.toLocaleString('en-US')+' above',left+4,map.top+2);
+    ctx.fillText(total?total.toLocaleString('en-US')+' ends':'where they end',left+4,map.bottom+6);
+    ctx.textBaseline='bottom'; if (below) ctx.fillText('↓ '+below.toLocaleString('en-US')+' below',left+4,map.bottom-2);
+  }
+  function updateWalkReadouts() {
+    const view=walk.view; if (!view) return;
+    const s2=view.sigma*view.sigma, f=displayFactor(view,view.T), median=Math.exp((view.mu-s2/2)*view.T)*f, mean=Math.exp(view.mu*view.T)*f, emp=walkEmpirical();
+    put('walk-median',emp?compact(emp.median)+' (GBM '+compact(median)+')':'—');
+    put('walk-mean',emp?compact(emp.mean)+' (GBM '+compact(mean)+')':'—');
+    const rule={price:'Each walker multiplies its price by 1 + μΔt ± σ√Δt on a fair coin flip. Nothing tells the median to grow at μ − σ²/2; compounding the flips does it. That is Itô’s lemma.',
+      ito:'Each walker steps in log price by (μ − σ²/2)Δt ± σ√Δt. It lands on the same distribution as the price-step walkers: the correction is Itô’s lemma, written in by hand.',
+      naive:'These walkers step in log price by μΔt ± σ√Δt, forgetting the −σ²/2. Their median climbs along e^(μt), above the GBM median, and their mean overshoots e^(μt) by a factor e^(σ²t/2).'}[view.rule];
+    const martingale=view.disc?(Math.abs(view.mu-view.r)<5e-7?' In today’s money with μ = r, the walkers’ mean stays at 1: a martingale.':' In today’s money every path is multiplied by e^(−rt).'):'';
+    put('walk-caption',rule+martingale+' Paths are drawn with little ink, so where many pass the pigment builds up.');
+    walkEls.plot.setAttribute('aria-label',(emp?emp.n.toLocaleString('en-US')+' walkers finished. Median '+fmt(emp.median,3)+', mean '+fmt(emp.mean,3)+'. ':'No walkers yet. ')+'GBM median '+fmt(median,3)+', mean '+fmt(mean,3)+'.');
+  }
+  // A parameter change dims the old pigment, then respawns walkers once the sliders settle.
+  function walkParamsChanged() {
+    if (!walk.view || walk.view.key===walkKey()) return;
+    if (!walk.stale) { walk.stale=true; walkEls.stage.classList.add('stale'); }
+    clearTimeout(walk.autoTimer);
+    walk.autoTimer=setTimeout(()=>{ const respawn=walk.used; clearWalkers(); if (respawn) releaseWalkers(); },320);
+  }
+  function updateWalkLabels() {
+    put('walk-n-out',walkCount().toLocaleString('en-US')); put('walk-steps-out',walkSteps().toLocaleString('en-US'));
+    put('walk-release','Release '+walkCount().toLocaleString('en-US')+' walkers');
+    for (const el of [walkEls.N,walkEls.steps]) setProgress(el,Number(el.value));
+  }
+  document.querySelectorAll('[data-mirror]').forEach(el=>el.addEventListener('input',()=>{ const key=el.dataset.mirror; setParameter(key,key==='deltaT'?horizonFromSlider(Number(el.value)):Number(el.value)/100); }));
+  for (const el of [walkEls.N,walkEls.steps]) el.addEventListener('input',updateWalkLabels);
+  byId('walk-release').addEventListener('click',releaseWalkers);
+  byId('walk-clear').addEventListener('click',()=>{ walk.used=false; clearWalkers(); put('walk-note',''); });
+  document.querySelectorAll('input[name="walk-rule"]').forEach(el=>el.addEventListener('change',()=>{ const respawn=walk.used; clearWalkers(); if (respawn) releaseWalkers(); }));
+  for (const el of [walkEls.discount,walkEls.log]) el.addEventListener('change',()=>{ const batches=walk.batches; walk.view=computeWalkView(); walk.batches=batches; walk.empirical=null; redrawWalkers(); });
+  new ResizeObserver(()=>{ if (!walk.resizeFrame) walk.resizeFrame=requestAnimationFrame(()=>{ walk.resizeFrame=0; redrawWalkers(); }); }).observe(walkEls.stage);
+  updateWalkLabels();
+
+  syncControls(); updateCharts(); redrawWalkers();
+
+  // Chart.js and its annotation plugin are embedded in this file: no network requests, same page offline.
+  function loadLibrary(embeddedId) {
+    const script=document.createElement('script'); script.textContent=byId(embeddedId).textContent; document.head.appendChild(script);
+  }
+  (async()=>{
+    try {
+      loadLibrary('chart-library'); loadLibrary('annotation-library');
+      Chart.defaults.font.family='Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+      Chart.defaults.color=COLORS.text;
+      const valueTip=axis=>x=>axis+' = '+fmt(x,3)+(axis==='Y'?' today  ·  '+fmt(x/Math.exp(-displayedState.r*displayedState.deltaT),3)+'× at the horizon':'×');
+      priceChart=makeChart('price-chart',[fillDataset(COLORS.fillMean),curveDataset(COLORS.curve)],'Outcome at the horizon, x (× S₀)','Density f(x)',1,
+        {title:valueTip('X'),label:(x,y)=>'Density f = '+fmt(y,4)});
+      normalChart=makeChart('normal-chart',[fillDataset(COLORS.fillMean),curveDataset(COLORS.curve)],'Standardized log return, z','Density φ(z)',1,
+        {title:z=>'z = '+fmt(z,3),label:(z,y)=>'φ(z) = '+fmt(y,4)});
+      normalChart.options.scales.x.min=-3.5; normalChart.options.scales.x.max=3.5;
+      discountChart=makeChart('discount-chart',[fillDataset(COLORS.fillAbove,3),curveDataset(COLORS.ghost,1.5,2),curveDataset(COLORS.curve)],'Present value today, y (× S₀)','Density g(y)',2,
+        {title:valueTip('Y'),label:(y,v)=>'Density g = '+fmt(v,4)});
+      valueChart=makeChart('value-chart',[fillDataset(COLORS.fillBelow,4),{...fillDataset(COLORS.fillCall,4),fill:2},{...curveDataset(COLORS.strike,1.5,3),borderDash:[5,4],fill:'origin',backgroundColor:COLORS.fillLeg,pointHitRadius:0},curveDataset(COLORS.curve)],'Present value today, y (× S₀)','Value density y·g(y)',3,
+        {title:valueTip('Y'),label:(y,v)=>{ const m=window.metrics; if (m.degenerate) return 'y·g(y) = '+fmt(v,4); const d=(m.MY+m.V-Math.log(y))/m.S; return ['y·g(y) = '+fmt(v,4),'Area above here: '+fmt(m.EY*cdf(d),4)]; }},[alignStrike]);
+      enableStrikeDrag(discountChart); enableStrikeDrag(valueChart);
+      window.dashboardCharts={price:priceChart,normal:normalChart,discount:discountChart,value:valueChart};
+      put('library-status','');
+      updateCharts();
+    } catch(error) {
+      byId('app-error').hidden=false; put('app-error','The charts could not initialize. The readouts remain available. '+error.message);
+      put('library-status',' · charts unavailable');
+      for (const id of ['price','normal','discount','value']) put(id+'-overlay','Chart unavailable');
+    }
+  })();
+  </script>
+</body>
+</html>
