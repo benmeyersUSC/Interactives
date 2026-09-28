@@ -1,0 +1,1108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Watch UCB choose, pull and learn on a K-armed Bernoulli bandit: whole confidence intervals side by side, the highest upper end winning each round, shrinking widths, and regret round by round.">
+<title>Optimism, one pull at a time</title>
+<style>
+  :root {
+    color-scheme: light;
+    --paper:#f4f6f5; --panel:#ffffff; --ink:#192d3b; --muted:#5f707b; --faint:#88969f; --line:#dce4e8; --hair:#edf1f3; --band:#f3f6f8;
+    --truth:#16934b; --warn:#c2372b; --warn-bg:#fff1ee; --ok:#16934b; --focus:#658ee0; --btn:#f6f8f9; --btn-hover:#eaf0f3;
+    --a1:#2262d6; --a2:#d0701c; --a3:#a8338c; --a4:#6a52c9; --a5:#1e8fa8; --a6:#8b6a35; --a7:#bf8c00; --a8:#d6336c; --a9:#52616d; --a10:#1b3a8a;
+    --rad:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 24' preserveAspectRatio='none'%3E%3Cpath d='M0.6 14.4 L3.3 12.8 L6.5 23.2 L11.5 0.6 L12 0.6' fill='none' stroke='black' stroke-width='1.25' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E");
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --paper:#0e1317; --panel:#151c22; --ink:#e2e8ec; --muted:#9dabb5; --faint:#76848e; --line:#26313a; --hair:#1c252c; --band:#1a232a;
+      --truth:#4fdc85; --warn:#ff7d6e; --warn-bg:#3a1e1a; --ok:#4fdc85; --focus:#7aa2ff; --btn:#1b242b; --btn-hover:#222d35;
+      --a1:#6f9fff; --a2:#f0a15a; --a3:#e37cc9; --a4:#a996ff; --a5:#5ecbe2; --a6:#d0a876; --a7:#f0c84b; --a8:#ff7aa8; --a9:#a4b4c0; --a10:#9ec5ff;
+    }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink); font:13px/1.45 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; font-variant-numeric:tabular-nums; }
+  h1,h2,h3,p { margin:0; }
+  button, input, select { font:inherit; color:inherit; }
+  button { cursor:pointer; }
+  :focus-visible { outline:3px solid var(--focus); outline-offset:2px; }
+  [hidden] { display:none !important; }
+  .shell { max-width:1680px; margin:0 auto; padding:12px 16px 22px; }
+
+  .masthead { display:flex; align-items:center; gap:12px; padding:2px 0 12px; flex-wrap:wrap; }
+  .brand { width:22px; height:22px; flex:0 0 22px; display:flex; align-items:end; gap:2px; padding:4px; border-radius:6px; background:var(--ink); opacity:.55; }
+  .brand i { display:block; width:3px; background:var(--panel); border-radius:1px; }
+  .brand i:nth-child(1) { height:6px; } .brand i:nth-child(2) { height:12px; } .brand i:nth-child(3) { height:9px; }
+  h1 { font-size:16px; font-weight:600; letter-spacing:-.015em; }
+  h1 span { font-weight:400; color:var(--muted); }
+  .status { margin-left:auto; font-size:11px; color:var(--faint); white-space:nowrap; }
+
+  /* the intervals are the page: a narrow rail, a tall center, the supporting plots on the right */
+  .layout { display:grid; grid-template-columns:290px minmax(0,1fr) minmax(340px,440px); gap:12px; align-items:start; }
+  .rail { display:flex; flex-direction:column; gap:10px; position:sticky; top:12px; max-height:calc(100vh - 24px); overflow:auto; scrollbar-width:thin; }
+  .side { display:flex; flex-direction:column; gap:12px; min-width:0; }
+  .card, .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; min-width:0; }
+  .card { padding:11px 13px; }
+  .panel { padding:11px 14px 10px; }
+  .k { font-size:11px; font-weight:650; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); margin-bottom:7px; display:flex; align-items:baseline; gap:6px; }
+  .k .m { text-transform:none; letter-spacing:0; font-weight:400; font-size:13px; color:var(--muted); }
+
+  .roundline { display:flex; align-items:baseline; gap:8px; }
+  .t-big { font-size:26px; font-weight:650; letter-spacing:-.02em; line-height:1; }
+  .t-of { color:var(--muted); font-size:12px; }
+  .phase { margin-left:auto; font-size:10.5px; font-weight:650; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); text-align:right; }
+  .phase.on { color:var(--ink); }
+  .bar { height:4px; border-radius:4px; background:var(--hair); margin:8px 0 10px; overflow:hidden; }
+  .bar i { display:block; height:100%; width:0; background:var(--ink); border-radius:4px; }
+  .actions { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .actions button, .split select { border:1px solid var(--line); background:var(--btn); border-radius:7px; padding:6px 10px; font-size:12.5px; }
+  .actions button:hover { background:var(--btn-hover); }
+  .actions button:disabled { opacity:.45; cursor:default; }
+  .actions .primary { background:var(--ink); border-color:var(--ink); color:var(--panel); font-weight:600; padding:6px 15px; }
+  .actions .primary:hover { background:var(--ink); opacity:.9; }
+  .split { display:inline-flex; }
+  .split button { border-radius:7px 0 0 7px; border-right:0; }
+  .split select { border-radius:0 7px 7px 0; padding:6px 4px; cursor:pointer; }
+  .actions.small { margin-top:9px; }
+  .actions.small button { padding:4px 9px; font-size:11.5px; color:var(--muted); }
+  .seed { margin-left:auto; font-size:11px; color:var(--faint); }
+  .seed b { color:var(--ink); font-weight:600; }
+  .param { display:grid; grid-template-columns:62px minmax(0,1fr) 58px; align-items:center; gap:8px; margin-top:9px; font-size:12px; }
+  .param label { color:var(--muted); }
+  .param output { text-align:right; font-weight:600; }
+  input[type=range] { width:100%; margin:0; accent-color:var(--ink); cursor:pointer; }
+
+  .hero .v { font-size:30px; font-weight:650; letter-spacing:-.025em; line-height:1.05; }
+  .hero .sub { margin-top:5px; font-size:12px; color:var(--muted); line-height:1.5; }
+  .hero .sub b { color:var(--ink); font-weight:600; }
+
+  /* math */
+  .m, .casc { font-family:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif; }
+  .m i, .casc i { font-style:italic; }
+  sub { font-size:.72em; vertical-align:-.28em; line-height:0; font-style:normal; }
+  sup { font-size:.72em; vertical-align:.5em; line-height:0; }
+  .frac { display:inline-flex; flex-direction:column; vertical-align:middle; text-align:center; margin:0 .12em; line-height:1.18; }
+  .frac > span:first-child { border-bottom:1px solid currentColor; padding:0 .22em .07em; }
+  .frac > span:last-child { padding:.1em .22em 0; }
+  .sqrt { display:inline-flex; align-items:stretch; vertical-align:middle; margin:0 .06em; }
+  .sqrt::before { content:""; flex:0 0 .6em; background:currentColor; -webkit-mask:var(--rad) no-repeat 0 0 / 100% 100%; mask:var(--rad) no-repeat 0 0 / 100% 100%; }
+  .sqrt > span { border-top:1.25px solid currentColor; padding:.14em .14em 0 .08em; display:inline-flex; align-items:center; }
+  .hat { position:relative; display:inline-block; }
+  .hat::after { content:"\02C6"; position:absolute; left:0; right:0; top:-.36em; text-align:center; font-style:normal; font-size:.9em; }
+  .casc { font-size:15px; line-height:1.25; }
+  .casc .row { display:flex; align-items:center; min-height:1.85em; white-space:nowrap; }
+  .casc .lhs, .casc .eq { display:inline-block; width:2.5em; flex:0 0 2.5em; text-align:right; padding-right:.3em; }
+  .casc .rhs { display:block; }
+  .casc b { font-weight:700; }
+  .casc .dim { color:var(--muted); font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; font-size:12px; white-space:normal; line-height:1.45; }
+  .after { margin-top:5px; font-size:12px; color:var(--muted); min-height:18px; }
+  .after b { color:var(--ink); font-weight:600; }
+  .casc-note { margin-top:7px; font-size:11.5px; color:var(--muted); line-height:1.5; }
+  .casc-note b { color:var(--ink); font-weight:600; }
+
+  .checks { list-style:none; margin:0; padding:0; display:grid; gap:5px; }
+  .checks li { display:grid; grid-template-columns:16px minmax(0,1fr); gap:4px; font-size:12px; line-height:1.4; }
+  .checks .mark { font-weight:700; }
+  .checks .ok .mark { color:var(--ok); }
+  .checks .bad .mark { color:var(--warn); }
+  .checks .bad { background:var(--warn-bg); border-radius:6px; padding:3px 6px 3px 0; }
+  .checks small { display:block; color:var(--muted); font-size:11px; }
+  .checks .m { font-size:13px; }
+
+  .sub-k { font-size:11px; font-weight:650; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); margin:12px 0 4px; }
+  .mu-row { display:grid; grid-template-columns:46px minmax(0,1fr) 34px; align-items:center; gap:8px; margin-top:5px; font-size:12px; }
+  .mu-row label { font-weight:600; color:var(--c); }
+  .mu-row input { accent-color:var(--c); }
+  .mu-row output { text-align:right; font-weight:600; color:var(--truth); }
+  .mu-row .best::after { content:" \2605"; }
+  .presets { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
+  .presets button { border:1px solid var(--line); border-radius:6px; padding:3px 8px; background:var(--btn); font-size:11px; color:var(--muted); }
+  .presets button:hover { background:var(--btn-hover); }
+  .presets button[aria-pressed="true"] { border-color:var(--ink); background:var(--ink); color:var(--panel); }
+  .rules { border:0; margin:4px 0 0; padding:0; display:grid; gap:4px; }
+  .rules label { display:flex; gap:7px; align-items:flex-start; padding:5px 8px; border:1px solid var(--line); border-radius:7px; cursor:pointer; font-size:12px; line-height:1.35; }
+  .rules label:has(input:checked) { border-color:var(--ink); background:var(--hair); }
+  .rules input { margin:2px 0 0; accent-color:var(--ink); }
+  .rules small { display:block; color:var(--muted); font-size:11px; }
+  .note { margin-top:9px; font-size:11px; color:var(--faint); line-height:1.5; }
+  .param.disabled { opacity:.45; }
+
+  .head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  .idx { font-size:10px; letter-spacing:.12em; color:var(--faint); font-weight:650; }
+  h2 { font-size:14px; font-weight:600; letter-spacing:-.01em; }
+  h2 .quiet { font-weight:400; color:var(--muted); font-size:13px; }
+  .head .seg { margin-left:auto; display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; font-size:11px; }
+  .head .seg button { border:0; background:transparent; padding:2px 8px; color:var(--muted); }
+  .head .seg button[aria-pressed="true"] { background:var(--ink); color:var(--panel); }
+  .legend { display:flex; flex-wrap:wrap; gap:2px 14px; padding:5px 0 4px; font-size:11.5px; color:var(--muted); min-height:24px; }
+  .legend span { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+  .legend b { color:var(--ink); font-weight:600; }
+  .sw { display:inline-block; width:16px; height:0; border-top:2px solid var(--ink); }
+  .sw.dash { border-top-style:dashed; } .sw.dot2 { border-top-style:dotted; }
+  .sw.bar { width:4px; height:14px; border:0; border-radius:2px; background:var(--ink); position:relative; }
+  .sw.disc { width:9px; height:9px; border:0; border-radius:50%; background:var(--ink); }
+  .sw.ring { width:11px; height:11px; border:2.5px solid var(--truth); border-radius:50%; }
+  .plot { position:relative; }
+  .plot canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  #plot-arms { height:clamp(430px, calc(100vh - 290px), 820px); }
+  #plot-arms canvas { touch-action:none; }
+  #plot-pulls { height:88px; margin-top:4px; border-top:1px solid var(--hair); }
+  #plot-rew { height:156px; }
+  #plot-law { height:164px; }
+  #plot-step { height:124px; }
+  #plot-cum { height:164px; }
+  .foot { margin-top:6px; font-size:11px; color:var(--muted); line-height:1.5; min-height:16px; }
+  .foot b { color:var(--ink); font-weight:600; }
+  .narr { margin-top:8px; font-size:12.5px; color:var(--ink); line-height:1.5; min-height:38px; }
+  .narr b { font-weight:600; }
+  .narr .mix { color:var(--muted); font-size:11.5px; }
+
+  .method { margin-top:12px; }
+  .method summary { cursor:pointer; padding:13px 18px; font-size:13px; font-weight:500; }
+  .method summary span { font-weight:400; color:var(--muted); margin-left:8px; font-size:12px; }
+  .method-body { padding:2px 18px 18px; }
+  .math-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+  .eqbox { min-width:0; overflow-x:auto; padding:12px 14px; background:var(--band); border-radius:7px; }
+  .eqbox label { display:block; font-size:11px; color:var(--muted); margin-bottom:8px; letter-spacing:.02em; }
+  .eqbox .m { font-size:15.5px; line-height:1.9; white-space:nowrap; }
+  .method h3 { font-size:12px; font-weight:600; margin:18px 0 8px; color:var(--muted); letter-spacing:.02em; }
+  .method p, .method li { color:var(--muted); font-size:12px; max-width:1100px; line-height:1.6; }
+  .method p + p { margin-top:8px; }
+  .method ul { margin:6px 0 0; padding-left:18px; }
+  .method li + li { margin-top:4px; }
+  .footer { margin-top:12px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; color:var(--faint); font-size:11px; }
+  kbd { font:11px Inter,-apple-system,sans-serif; border:1px solid var(--line); border-bottom-width:2px; border-radius:4px; padding:0 4px; background:var(--panel); color:var(--muted); }
+
+  @media (max-width:1320px) {
+    .layout { grid-template-columns:290px minmax(0,1fr); }
+    .side { grid-column:1 / -1; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .math-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  }
+  @media (max-width:900px) {
+    .layout { grid-template-columns:minmax(0,1fr); }
+    .rail { position:static; max-height:none; overflow:visible; }
+    .side { grid-template-columns:minmax(0,1fr); }
+    .math-grid { grid-template-columns:minmax(0,1fr); }
+    .status { display:none; }
+  }
+</style>
+</head>
+<body>
+<main class="shell">
+  <header class="masthead">
+    <span class="brand" aria-hidden="true"><i></i><i></i><i></i></span>
+    <h1>Optimism, one pull at a time <span>· upper confidence bounds on a K-armed bandit</span></h1>
+    <span class="status" id="status"></span>
+  </header>
+
+  <div class="layout">
+    <aside class="rail" aria-label="Run, readouts and settings">
+      <section class="card" aria-label="Run controls">
+        <div class="roundline"><span class="t-big" id="t-now">0</span><span class="t-of">of <span id="t-max">2,000</span> rounds</span><span class="phase" id="phase"></span></div>
+        <div class="bar" aria-hidden="true"><i id="t-bar"></i></div>
+        <div class="actions">
+          <button type="button" class="primary" id="btn-step" title="One round, played slowly (→)">Step</button>
+          <span class="split"><button type="button" id="btn-run" title="Jump ahead without animation">Run</button><select id="run-n" aria-label="Rounds to run"><option value="10">10</option><option value="100" selected>100</option><option value="1000">1,000</option><option value="all">to T</option></select></span>
+          <button type="button" id="btn-auto" title="Play or pause (space)">▶ Auto</button>
+        </div>
+        <div class="param"><label for="speed">Speed</label><input type="range" id="speed" min="0" max="1000" step="1" aria-label="Rounds per second, logarithmic"><output id="speed-out"></output></div>
+        <div class="actions small"><button type="button" id="btn-reset" title="Replay this run from round 1 (same seed)">Reset run</button><button type="button" id="btn-seed" title="Draw a different reward table">New seed</button><span class="seed">seed <b id="seed-out">1</b></span></div>
+      </section>
+
+      <section class="card hero" aria-live="polite">
+        <div class="k">Regret so far <span class="m"><i>R</i><sub><i>t</i></sub></span></div>
+        <div class="v" id="R-val">0.00</div>
+        <div class="sub" id="R-sub"></div>
+      </section>
+
+      <section class="card">
+        <div class="k" id="casc-title">Round 1</div>
+        <div class="casc" id="casc"></div>
+        <div class="after" id="casc-after"></div>
+        <div class="casc-note" id="casc-note"></div>
+      </section>
+
+      <section class="card">
+        <div class="k">Checks</div>
+        <ul class="checks" id="checks"></ul>
+      </section>
+
+      <section class="card">
+        <div class="k">Settings</div>
+        <div class="param" style="margin-top:0"><label for="K">Arms <i>K</i></label><input type="range" id="K" min="2" max="10" step="1" value="5"><output id="K-out">5</output></div>
+        <div class="sub-k">True means <span class="m" style="text-transform:none;letter-spacing:0;font-weight:400">μ<sub>k</sub>, Bernoulli rewards</span></div>
+        <div id="mu-rows"></div>
+        <div class="presets" id="presets" role="group" aria-label="Arm presets"></div>
+        <div class="sub-k">Interval width <span class="m" style="text-transform:none;letter-spacing:0;font-weight:400">r</span></div>
+        <fieldset class="rules" id="rules">
+          <label><input type="radio" name="rule" value="union" checked><span><b>Hoeffding + union bound</b><small>r = √(ln(2KT/δ) / 2N): all K·T intervals hold at once with probability ≥ 1 − δ</small></span></label>
+          <label><input type="radio" name="rule" value="lecture"><span><b>Lecture form</b><small>r = √(ln(KT/δ) / N): a looser constant, holds with probability ≥ 1 − 2δ²/KT</small></span></label>
+          <label><input type="radio" name="rule" value="ucb1"><span><b>UCB1</b><small>r = √(2 ln t / N): no horizon, no δ</small></span></label>
+          <label><input type="radio" name="rule" value="naive"><span><b>Forgets the union bound</b><small>r = √(ln(2/δ) / 2N): the typical run gets cheaper, a few starve the best arm</small></span></label>
+        </fieldset>
+        <div class="param" id="delta-row"><label for="delta">Failure <i>δ</i></label><input type="range" id="delta" min="0" max="1000" step="1" aria-label="Failure probability delta, logarithmic"><output id="delta-out"></output></div>
+        <div class="param"><label for="T">Horizon <i>T</i></label><input type="range" id="T" min="0" max="1000" step="1" aria-label="Horizon T in rounds, logarithmic"><output id="T-out"></output></div>
+        <p class="note">Every setting starts a fresh run. Each arm has its own seeded reward stream, so the same seed gives the same rewards under every rule.</p>
+      </section>
+    </aside>
+
+    <article class="panel" id="panel-arms" aria-label="The intervals">
+      <div class="head"><span class="idx">01</span><h2>The intervals <span class="quiet m"><span class="hat"><i>μ</i></span><sub><i>k</i></sub> ± <i>r</i><sub><i>k</i></sub>; pull the highest upper end <i>U</i><sub><i>k</i></sub> = <span class="hat"><i>μ</i></span><sub><i>k</i></sub> + <i>r</i><sub><i>k</i></sub></span></h2></div>
+      <div class="legend"><span><i class="sw bar"></i>interval, ends <b>U</b> and <b>L</b></span><span><i class="sw disc"></i>estimate <span class="m"><span class="hat"><i>μ</i></span><sub><i>k</i></sub></span></span><span><i class="sw ring"></i>true mean <span class="m"><i>μ</i><sub><i>k</i></sub></span> (drag it)</span><span><i class="sw dash" style="border-color:var(--ink)"></i>highest upper end <b id="maxU-leg">∞</b></span><span><i class="sw dot2" style="border-color:var(--faint)"></i>how far each other top falls short</span></div>
+      <div class="plot" id="plot-arms"><canvas id="c-arms" role="img" aria-label="Every arm's confidence interval side by side"></canvas></div>
+      <div class="plot" id="plot-pulls"><canvas id="c-pulls" role="img" aria-label="Pull counts per arm on a log scale, with caps"></canvas></div>
+      <p class="narr" id="narr"></p>
+      <p class="foot" id="foot-arms">The band marks [0, 1], where every mean lives. The axis rescales in rounded steps so every interval stays whole; the strip underneath counts pulls on a log scale, with each worse arm's cap dashed.</p>
+    </article>
+
+    <div class="side">
+      <article class="panel" id="panel-rew">
+        <div class="head"><span class="idx">02</span><h2>Reward so far <span class="quiet">optimal, UCB and uniform random</span></h2></div>
+        <div class="legend" id="leg-rew"></div>
+        <div class="plot" id="plot-rew"><canvas id="c-rew" role="img" aria-label="Cumulative reward of always pulling the best arm, of UCB, and of uniform random pulling"></canvas></div>
+        <p class="foot">The gap between the optimal line and UCB's line is the regret in plot 04. UCB's slope climbs toward the optimal slope as it stops exploring; uniform random keeps the average slope forever.</p>
+      </article>
+      <article class="panel" id="panel-step">
+        <div class="head"><span class="idx">03</span><h2>Regret per round <span class="quiet">the gap <span class="m"><i>Δ</i></span> of the arm pulled</span></h2></div>
+        <div class="legend" id="leg-step"></div>
+        <div class="plot" id="plot-step"><canvas id="c-step" role="img" aria-label="Regret contributed by each round, colored by arm"></canvas></div>
+      </article>
+      <article class="panel" id="panel-cum">
+        <div class="head"><span class="idx">04</span><h2>Regret so far <span class="quiet m"><i>R</i><sub><i>t</i></sub> = Σ<sub><i>k</i></sub> <i>Δ</i><sub><i>k</i></sub><i>N</i><sub><i>k</i></sub></span></h2>
+          <span class="seg" role="group" aria-label="Vertical axis fit"><button type="button" data-fit="regret" aria-pressed="true">fit regret</button><button type="button" data-fit="all" aria-pressed="false">fit all</button></span></div>
+        <div class="legend" id="leg-cum"></div>
+        <div class="plot" id="plot-cum"><canvas id="c-cum" role="img" aria-label="Cumulative regret with the cap bound and a uniform-random reference"></canvas></div>
+        <p class="foot" id="foot-cum"></p>
+      </article>
+      <article class="panel" id="panel-law">
+        <div class="head"><span class="idx">05</span><h2>One width law <span class="quiet">every interval rides the same curve</span></h2></div>
+        <div class="legend" id="leg-law"></div>
+        <div class="plot" id="plot-law"><canvas id="c-law" role="img" aria-label="Half-width against pull count, log-log"></canvas></div>
+        <p class="foot">Halving a width costs four times the pulls. A worse arm stops winning once its width falls below half its gap: the curve crosses each dashed line at that arm's cap.</p>
+      </article>
+    </div>
+  </div>
+
+  <details class="panel method">
+    <summary>Inside the model <span>the game, Hoeffding, the union bound, why worse arms stop, and how the plots are drawn</span></summary>
+    <div class="method-body">
+      <div class="math-grid">
+        <div class="eqbox"><label>Rewards, estimates, gaps</label><div class="m"><i>X</i> ~ Bernoulli(<i>μ</i><sub><i>k</i></sub>), &nbsp; <span class="hat"><i>μ</i></span><sub><i>k</i></sub> = <span class="frac"><span><i>S</i><sub><i>k</i></sub></span><span><i>N</i><sub><i>k</i></sub></span></span>, &nbsp; <i>Δ</i><sub><i>k</i></sub> = <i>μ</i><sup>*</sup> − <i>μ</i><sub><i>k</i></sub></div></div>
+        <div class="eqbox"><label>Regret, two ways (plot 03 summed, and the pull strip)</label><div class="m"><i>R</i><sub><i>t</i></sub> = Σ<sub><i>s</i>≤<i>t</i></sub> <i>Δ</i><sub><i>A</i><sub><i>s</i></sub></sub> = Σ<sub><i>k</i></sub> <i>Δ</i><sub><i>k</i></sub> <i>N</i><sub><i>k</i></sub>(<i>t</i>)</div></div>
+        <div class="eqbox"><label>Hoeffding, rewards in [0, 1]</label><div class="m">P(|<span class="hat"><i>μ</i></span><sub><i>N</i></sub> − <i>μ</i>| ≥ <i>ε</i>) ≤ 2<i>e</i><sup>−2<i>Nε</i>²</sup></div></div>
+        <div class="eqbox"><label>Union bound over K arms × T counts</label><div class="m">2<i>e</i><sup>−2<i>N</i><i>r</i>²</sup> = <span class="frac"><span><i>δ</i></span><span><i>KT</i></span></span> &nbsp;⟹&nbsp; <i>r</i><sub><i>N</i></sub> = <span class="sqrt"><span><span class="frac"><span>ln(2<i>KT</i>/<i>δ</i>)</span><span>2<i>N</i></span></span></span></span></div></div>
+        <div class="eqbox"><label>The rule</label><div class="m"><i>A</i><sub><i>t</i></sub> = argmax<sub><i>k</i></sub> <i>U</i><sub><i>k</i></sub>, &nbsp; <i>U</i><sub><i>k</i></sub> = <span class="hat"><i>μ</i></span><sub><i>k</i></sub> + <i>r</i>(<i>N</i><sub><i>k</i></sub>), &nbsp; <i>U</i> = ∞ if <i>N</i><sub><i>k</i></sub> = 0</div></div>
+        <div class="eqbox"><label>Why a worse arm stops (on the good event)</label><div class="m"><i>μ</i><sup>*</sup> ≤ <i>U</i><sub><i>k</i>*</sub> ≤ <i>U</i><sub><i>k</i></sub> ≤ <i>μ</i><sub><i>k</i></sub> + 2<i>r</i><sub><i>N</i></sub> &nbsp;⟹&nbsp; <i>r</i><sub><i>N</i></sub> ≥ <span class="frac"><span><i>Δ</i><sub><i>k</i></sub></span><span>2</span></span></div></div>
+        <div class="eqbox"><label>The caps in the pull strip</label><div class="m"><i>N</i><sub><i>k</i></sub>(<i>t</i>) ≤ <i>c</i><sub><i>k</i></sub> = ⌊<span class="frac"><span>2<i>L</i></span><span><i>Δ</i><sub><i>k</i></sub>²</span></span>⌋ + 1, &nbsp; <i>L</i> = ln(2<i>KT</i>/<i>δ</i>)</div></div>
+        <div class="eqbox"><label>Regret on the good event</label><div class="m"><i>R</i><sub><i>t</i></sub> ≤ Σ<sub><i>Δ</i><sub><i>k</i></sub>&gt;0</sub> <i>Δ</i><sub><i>k</i></sub> <i>c</i><sub><i>k</i></sub> ≈ Σ<sub><i>k</i></sub> <span class="frac"><span>2 ln(2<i>KT</i>/<i>δ</i>)</span><span><i>Δ</i><sub><i>k</i></sub></span></span></div></div>
+        <div class="eqbox"><label>The other widths</label><div class="m"><span class="sqrt"><span><span class="frac"><span>ln(<i>KT</i>/<i>δ</i>)</span><span><i>N</i></span></span></span></span>, &nbsp; <span class="sqrt"><span><span class="frac"><span>2 ln <i>t</i></span><span><i>N</i></span></span></span></span>, &nbsp; <span class="sqrt"><span><span class="frac"><span>ln(2/<i>δ</i>)</span><span>2<i>N</i></span></span></span></span></div></div>
+      </div>
+
+      <h3>The argument</h3>
+      <p>Pulling arm <i>k</i> pays a reward of 1 with probability <i>μ</i><sub><i>k</i></sub> and 0 otherwise. The best mean is <i>μ</i><sup>*</sup>, and arm <i>k</i> falls short of it by the gap <i>Δ</i><sub><i>k</i></sub>. Regret counts, round by round, how much mean reward the pulled arm gave up. Every pull of arm <i>k</i> gives up exactly <i>Δ</i><sub><i>k</i></sub>, so the sum over rounds in plot 03 must equal the gaps times the counts in the pull strip. The checks confirm the two routes agree.</p>
+      <p>Hoeffding bounds how far an average of <i>N</i> rewards in [0, 1] strays from its mean. A run can look at <i>K</i> arms, and each arm at up to <i>T</i> different counts, so there are at most <i>K·T</i> intervals it will ever read. Giving each a failure budget of <i>δ</i>/(<i>KT</i>) makes all of them hold together with probability at least 1 − <i>δ</i>: the good event. The price is <i>L</i> = ln(2<i>KT</i>/<i>δ</i>) in place of ln(2/<i>δ</i>), which widens every interval by the square root of their ratio. The lecture form, √(ln(<i>KT</i>/<i>δ</i>)/<i>N</i>), is the same idea with a looser constant: it is about √2 wider and holds with probability at least 1 − 2<i>δ</i>²/(<i>KT</i>).</p>
+      <p>On the good event the best arm's upper end never falls below <i>μ</i><sup>*</sup>. A worse arm's upper end is at most its true mean plus twice its width. So a worse arm can only win while twice its width exceeds its gap, which caps its count at about 2<i>L</i>/<i>Δ</i><sub><i>k</i></sub>². In plot 05 the cap is where the width law crosses <i>Δ</i><sub><i>k</i></sub>/2. Summing gap times cap gives regret that grows like log <i>T</i>, while pulling arms uniformly grows linearly in <i>t</i>.</p>
+      <p>UCB1 (Auer, Cesa-Bianchi and Fischer, 2002) uses √(2 ln <i>t</i> / <i>N</i>) and needs no horizon; its caps grow like 8 ln <i>t</i>/<i>Δ</i>². The forgetful rule sizes each interval for one reading and loses the guarantee for the thousands it actually reads. Hoeffding is loose for coin flips, so this usually goes unpunished. On the default arms over 200 seeds at <i>δ</i> = 0.05, it had median regret 20 against the union bound's 57, but missed in 26 runs where the union bound missed in none. At <i>δ</i> = 0.5 it missed in 140 runs, and its worst run paid 318 because an unlucky start starved the best arm; the union bound's worst was 91. The union bound is insurance, and plot 04 shows its premium.</p>
+
+      <h3>Assumptions and how the plots are drawn</h3>
+      <ul>
+        <li>Rewards are Bernoulli. Each arm draws from its own seeded stream (mulberry32), so the <i>j</i>-th pull of arm <i>k</i> returns the same reward whatever the rule, δ or horizon. Switch the rule on the same seed to compare fairly; finished runs stay in plot 04 as faint curves while the arms are unchanged.</li>
+        <li>Unpulled arms have upper end ∞ and ties go to the lowest arm, so rounds 1 to <i>K</i> pull each arm once. For UCB1, <i>t</i> in ln <i>t</i> is counted from <i>K</i>.</li>
+        <li>Regret is pseudo-regret: it uses the true means, not the rewards that happened to land. The good event is checked after every round, for every arm, with the widths the next round will use.</li>
+        <li>Plot 01's vertical axis always contains every finite interval and the band [0, 1]. It rescales only when an end would leave the frame or the intervals fill less than about half of it, in rounded steps, easing in, so a single round shows shrinking and not rescaling.</li>
+        <li>One precision per quantity everywhere on the page: true means 2 decimals; estimates, widths and ends 3; regret, <i>L</i> and gaps 2. In the index cascade the estimate appears as the exact fraction <i>S</i>/<i>N</i> and the width with the exact settings, and the last line shows ≈ when adding the rounded terms would print a different index.</li>
+        <li>Plot 04's dashed curve is the most regret any run could have by round <i>t</i> if every interval held: the first pulls, then the largest gaps filled up to their caps. The dotted line is the expected regret of pulling arms uniformly at random.</li>
+        <li>Plot 02 draws expected rewards for all three strategies, so the gap between the optimal line and UCB's line is exactly the regret of plot 04; the faint jagged line is the rewards UCB actually collected, which scatter around its expectation.</li>
+        <li>Plots 02, 03 and 04 share a round axis that grows in small rounded steps: when the newest round passes about 60% of the window, the window grows to about twice the newest round, so the newest point sits near the middle until the horizon. Plot 04's regret axis grows the same way.</li>
+      </ul>
+      <p style="margin-top:10px">Keys: <kbd>→</kbd> step, <kbd>space</kbd> play or pause, <kbd>R</kbd> reset the run. Hover an arm in plot 01 to read its index in the rail.</p>
+    </div>
+  </details>
+  <div class="footer"><span>UCB explorer · Bernoulli arms · Hoeffding intervals</span><span>Single file, no libraries, works offline</span></div>
+</main>
+
+<script>
+(() => {
+"use strict";
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, p) => a + (b - a) * p;
+const easeIO = p => p < .5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+const SANS = 'Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+const SERIF = '"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif';
+
+// MODEL:BEGIN  (pure: no DOM; the page and the headless tests share it)
+function hash32(x) { x |= 0; x = Math.imul(x ^ (x >>> 16), 0x7feb352d); x = Math.imul(x ^ (x >>> 15), 0x846ca68b); return (x ^ (x >>> 16)) >>> 0; }
+function mulberry32(a) { return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+// One reward stream per arm: the j-th pull of arm k returns the same uniform draw under every rule.
+const armStream = (seed, k) => mulberry32(hash32(hash32(Math.imul(seed | 0, 2654435761)) ^ hash32(k + 0x9e3779b9)));
+
+// The log term inside the half-width. UCB1 counts t from K, the first round after every arm has one pull.
+function logTerm(cfg, t) {
+  if (cfg.rule === "union") return Math.log(2 * cfg.K * cfg.T / cfg.delta);
+  if (cfg.rule === "lecture") return Math.log(cfg.K * cfg.T / cfg.delta);
+  if (cfg.rule === "naive") return Math.log(2 / cfg.delta);
+  return Math.log(Math.max(t, cfg.K));
+}
+function radius(cfg, n, t) {
+  if (!(n > 0)) return Infinity;
+  const L = logTerm(cfg, t);
+  return cfg.rule === "ucb1" ? Math.sqrt(2 * L / n) : cfg.rule === "lecture" ? Math.sqrt(L / n) : Math.sqrt(L / (2 * n));
+}
+// r(N) = gap/2 exactly at N = capConst/gap^2; a worse arm is pulled at most floor(capConst/gap^2) + 1 times while intervals hold.
+function capConst(cfg, t) { return (cfg.rule === "ucb1" ? 8 : cfg.rule === "lecture" ? 4 : 2) * logTerm(cfg, t); }
+function capOf(cfg, gap, t) { return gap > 1e-12 ? Math.floor(capConst(cfg, t) / (gap * gap)) + 1 : Infinity; }
+
+function makeRun(cfg) {
+  const K = cfg.K, mu = cfg.mu.slice(0, K), best = Math.max(...mu), T = cfg.T;
+  return { cfg, K, mu, best, gaps: mu.map(m => best - m), t: 0, n: new Array(K).fill(0), S: new Array(K).fill(0),
+    draw: Array.from({ length: K }, (_, k) => armStream(cfg.seed, k)),
+    arm: new Int16Array(T), rew: new Uint8Array(T), dreg: new Float64Array(T), cum: new Float64Array(T), kind: new Uint8Array(T), uAt: new Float64Array(T), cumRew: new Float64Array(T),
+    R: 0, missRounds: 0, miss: [], kinds: [0, 0, 0], last: null };
+}
+// Everything the next decision reads.
+function snap(run) {
+  const { K, cfg, t } = run, n = run.n.slice(), mh = new Array(K), r = new Array(K), U = new Array(K);
+  for (let k = 0; k < K; k++) { mh[k] = n[k] ? run.S[k] / n[k] : NaN; r[k] = radius(cfg, n[k], t); U[k] = n[k] ? mh[k] + r[k] : Infinity; }
+  let arg = 0; for (let k = 1; k < K; k++) if (U[k] > U[arg]) arg = k;     // ties: lowest arm
+  return { t, n, S: run.S.slice(), mh, r, U, arg };
+}
+// kind: 0 first pull (upper end was infinite), 1 exploit (also the best estimate), 2 explore (won on width).
+function stepRun(run) {
+  if (run.t >= run.cfg.T) return null;
+  const before = snap(run), k = before.arg, missBefore = run.miss;
+  let kind = 0, lead = -1;
+  if (before.n[k] > 0) { lead = 0; for (let j = 1; j < run.K; j++) if (before.mh[j] > before.mh[lead]) lead = j; kind = before.mh[k] >= before.mh[lead] ? 1 : 2; }
+  let second = -1; for (let j = 0; j < run.K; j++) if (j !== k && (second < 0 || before.U[j] > before.U[second])) second = j;
+  const reward = run.draw[k]() < run.mu[k] ? 1 : 0;
+  run.n[k] += 1; run.S[k] += reward;
+  const i = run.t, d = run.gaps[k];
+  run.R += d; run.arm[i] = k; run.rew[i] = reward; run.dreg[i] = d; run.cum[i] = run.R; run.kind[i] = kind; run.uAt[i] = before.U[k]; run.cumRew[i] = (i ? run.cumRew[i - 1] : 0) + reward; run.kinds[kind]++;
+  run.t += 1;
+  const after = snap(run), miss = [];
+  for (let j = 0; j < run.K; j++) if (after.n[j] > 0 && Math.abs(after.mh[j] - run.mu[j]) > after.r[j]) miss.push(j);
+  if (miss.length) run.missRounds++;
+  run.miss = miss;
+  return run.last = { t: run.t, arm: k, reward, dreg: d, kind, lead, second, before, after, miss, missBefore, Rbefore: run.R - d };
+}
+// The most regret any run could have by round t if every interval held: forced first pulls, then the
+// largest gaps filled up to their caps (a unit-weight knapsack, so greedy by gap is optimal).
+function capBound(run, t) {
+  const { K, gaps, cfg } = run; if (t <= 0) return 0;
+  let s = 0;
+  if (t <= K) { for (let k = 0; k < t; k++) s += gaps[k]; return s; }
+  for (let k = 0; k < K; k++) s += gaps[k];
+  let budget = t - K;
+  const order = gaps.map((g, k) => k).filter(k => gaps[k] > 1e-12).sort((a, b) => gaps[b] - gaps[a]);
+  for (const k of order) { if (budget <= 0) break; const take = Math.min(Math.max(0, capOf(cfg, gaps[k], t) - 1), budget); s += take * gaps[k]; budget -= take; }
+  return s;
+}
+function runChecks(run) {
+  let sumN = 0, viaCounts = 0;
+  for (let k = 0; k < run.K; k++) { sumN += run.n[k]; viaCounts += run.gaps[k] * run.n[k]; }
+  const over = []; for (let k = 0; k < run.K; k++) if (run.gaps[k] > 1e-12 && run.n[k] > capOf(run.cfg, run.gaps[k], run.t)) over.push(k);
+  const B = capBound(run, run.t);
+  return { sumN, viaCounts, twoWays: Math.abs(viaCounts - run.R) <= 1e-9 * Math.max(1, run.R), over, B, underBound: run.R <= B + 1e-9 * Math.max(1, B) };
+}
+// MODEL:END
+
+// ---------- settings ----------
+const sig2 = v => Number(v.toPrecision(2));
+const logSlider = (lo, hi) => ({ to: s => Math.pow(10, lerp(Math.log10(lo), Math.log10(hi), s / 1000)), from: v => 1000 * (Math.log10(v) - Math.log10(lo)) / (Math.log10(hi) - Math.log10(lo)) });
+const DELTA = logSlider(1e-6, 0.5), HORIZON = logSlider(50, 20000), SPEED = logSlider(0.5, 500);
+const DEFAULT_MU = [0.35, 0.80, 0.20, 0.65, 0.50, 0.42, 0.58, 0.28, 0.72, 0.12];
+const cfg = { K: 5, mu: DEFAULT_MU.slice(), delta: 0.05, T: 2000, rule: "union", seed: 1 };
+const round2 = v => Math.round(v * 100) / 100;
+function shuffleFor(K, salt) { const r = mulberry32(hash32(K * 7919 + salt)), idx = [...Array(K).keys()]; for (let i = K - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [idx[i], idx[j]] = [idx[j], idx[i]]; } return idx; }
+const place = (vals, K, salt) => { const p = shuffleFor(K, salt), out = new Array(K); vals.forEach((v, i) => out[p[i]] = v); return out; };
+const PRESETS = [
+  { id: "spread", label: "Spread", make: K => K === 5 ? DEFAULT_MU.slice(0, 5) : place(Array.from({ length: K }, (_, i) => round2(0.2 + 0.6 * i / (K - 1))), K, 1) },
+  { id: "close", label: "Close race", make: K => place([0.70, 0.65, ...Array.from({ length: K - 2 }, (_, i) => round2(K > 3 ? 0.25 + 0.3 * i / (K - 3) : 0.4))], K, 2) },
+  { id: "needle", label: "Needle", make: K => Array.from({ length: K }, (_, i) => i === Math.floor(K / 2) ? 0.65 : 0.45) },
+  { id: "equal", label: "All equal", make: K => new Array(K).fill(0.5) },
+  { id: "random", label: "Random", make: K => { const r = mulberry32(hash32(cfg.seed * 31 + 7)); return Array.from({ length: K }, () => round2(0.1 + 0.8 * r())); } },
+];
+
+// ---------- formatting: one precision per quantity ----------
+const minus = s => s.replace(/^-/, "−");
+function fx(v, d) {
+  if (v === Infinity) return "∞"; if (v === -Infinity) return "−∞"; if (!Number.isFinite(v)) return "—";
+  return minus((Math.abs(v) < 0.5 * Math.pow(10, -d) ? 0 : v).toFixed(d));
+}
+const F = {
+  mu: v => fx(v, 2), mean: v => fx(v, 3), width: v => fx(v, 3), index: v => fx(v, 3),
+  gap: v => fx(v, 2), regret: v => fx(v, 2), L: v => fx(v, 2),
+  int: v => Number.isFinite(v) ? Math.round(v).toLocaleString("en-US") : "∞",
+  delta: v => String(v), rate: v => (v < 10 ? String(v) : Math.round(v).toLocaleString("en-US")),
+};
+const roundTo = (v, d) => Number(v.toFixed(d));
+const kfmt = v => v >= 1000 ? (v % 1000 === 0 ? v / 1000 + "k" : (v / 1000).toFixed(1).replace(/\.0$/, "") + "k") : String(v);
+function niceStep(span, parts) { const raw = span / parts, mag = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / mag; return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * mag; }
+function linTicks(lo, hi, parts) { const st = niceStep(hi - lo, parts), out = []; for (let v = Math.ceil(lo / st) * st; v <= hi + 1e-9 * st; v += st) out.push(+v.toFixed(10)); return out; }
+function niceCeil(v) { if (!(v > 0)) return 1; const mag = Math.pow(10, Math.floor(Math.log10(v))), f = v / mag; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * mag; }
+const NICE = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+function niceUp(v) { if (!(v > 0)) return 1; const e = Math.floor(Math.log10(v)), m = v / Math.pow(10, e); for (const q of NICE) if (q >= m - 1e-9) return q * Math.pow(10, e); return 10 * Math.pow(10, e); }
+function logTicks(lo, hi) { const out = []; for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e++) for (const m of [1, 2, 5]) { const v = m * Math.pow(10, e); if (v >= lo * 0.999 && v <= hi * 1.001) out.push(v); } return out; }
+const tickText = v => v === 0 ? "0" : Math.abs(v) >= 1000 ? kfmt(v) : minus(String(+v.toPrecision(3)));
+const SUB = "₀₁₂₃₄₅₆₇₈₉";
+const sub = n => String(n).split("").map(d => SUB[+d]).join("");
+
+// ---------- colors ----------
+let C = {};
+function readColors() {
+  const s = getComputedStyle(document.documentElement), g = k => s.getPropertyValue("--" + k).trim();
+  C = { panel: g("panel"), ink: g("ink"), muted: g("muted"), faint: g("faint"), line: g("line"), hair: g("hair"), band: g("band"), truth: g("truth"), warn: g("warn"), ok: g("ok"),
+        arm: Array.from({ length: 10 }, (_, i) => g("a" + (i + 1))) };
+}
+function alpha(hex, a) { const h = hex.replace("#", ""), n = parseInt(h.length === 3 ? h.split("").map(c => c + c).join("") : h, 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`; }
+
+// ---------- canvas helpers ----------
+const cv = { arms: $("c-arms"), pulls: $("c-pulls"), law: $("c-law"), step: $("c-step"), cum: $("c-cum"), rew: $("c-rew") };
+function prep(canvas) {
+  const r = window.devicePixelRatio || 1, box = canvas.parentElement, W = box.clientWidth, H = box.clientHeight;
+  const tw = Math.max(1, Math.round(W * r)), th = Math.max(1, Math.round(H * r));
+  if (canvas.width !== tw || canvas.height !== th) { canvas.width = tw; canvas.height = th; }
+  const c = canvas.getContext("2d"); c.setTransform(r, 0, 0, r, 0, 0); c.clearRect(0, 0, W, H);
+  return { c, W, H };
+}
+function label(c, s, x, y, { color = C.muted, size = 11, weight = 400, align = "left", base = "alphabetic", font = SANS, halo = false } = {}) {
+  c.font = `${weight} ${size}px ${font}`; c.textAlign = align; c.textBaseline = base;
+  if (halo) { c.lineWidth = 3.5; c.strokeStyle = alpha(C.panel, .92); c.lineJoin = "round"; c.strokeText(s, x, y); }
+  c.fillStyle = color; c.fillText(s, x, y);
+}
+function hline(c, x0, x1, y, color, width = 1, dash = []) { c.save(); c.setLineDash(dash); c.strokeStyle = color; c.lineWidth = width; c.beginPath(); c.moveTo(x0, y); c.lineTo(x1, y); c.stroke(); c.restore(); }
+function vline(c, x, y0, y1, color, width = 1, dash = []) { c.save(); c.setLineDash(dash); c.strokeStyle = color; c.lineWidth = width; c.beginPath(); c.moveTo(x, y0); c.lineTo(x, y1); c.stroke(); c.restore(); }
+function disc(c, x, y, r, fill, ring = null, ringW = 2) { c.beginPath(); c.arc(x, y, r, 0, 2 * Math.PI); if (fill) { c.fillStyle = fill; c.fill(); } if (ring) { c.lineWidth = ringW; c.strokeStyle = ring; c.stroke(); } }
+function tri(c, x, y, s, up, color) { c.fillStyle = color; c.beginPath(); if (up) { c.moveTo(x, y); c.lineTo(x - s, y + s * 1.3); c.lineTo(x + s, y + s * 1.3); } else { c.moveTo(x, y); c.lineTo(x - s, y - s * 1.3); c.lineTo(x + s, y - s * 1.3); } c.closePath(); c.fill(); }
+
+// ---------- run, animation and auto state ----------
+let run = makeRun(cfg);
+let anim = null;                                    // { ev, start, dur }
+const auto = { on: false, rate: 4, acc: 0, last: 0, nextAt: 0 };
+const FAST = 9;                                     // rounds per second above which rounds are not tweened
+const pullAt = new Array(10).fill(-1e9);            // for the pulse on recently pulled lanes
+let pulseMs = 520;
+let gains = null;                                   // { until, add[] } after a jump
+let focus = -1;                                     // hovered arm
+let drag = -1;                                      // arm whose true mean is being dragged
+let fit = "regret";
+const cumAxis = { view: 0, target: 0, last: 0 };
+const roundAxis = { view: 0, target: 0, last: 0, easing: false };
+const armAxis = { lo: -0.2, hi: 1.2, tLo: -0.2, tHi: 1.2, last: 0, easing: false };
+let ghosts = [];                                    // finished runs on the same arms: { label, pts:[[t,R]], R }
+let ghostKey = "";
+
+const armsKey = () => cfg.K + "|" + cfg.mu.slice(0, cfg.K).join(",") + "|" + cfg.T;
+function restart({ keepGhosts = true } = {}) {
+  setAuto(false); anim = null; gains = null;
+  if (!keepGhosts || armsKey() !== ghostKey) { ghosts = []; ghostKey = armsKey(); }
+  run = makeRun(cfg); pullAt.fill(-1e9);
+  $("btn-step").disabled = $("btn-run").disabled = false;   // a fresh run is steppable at once, not a frame later
+  cumAxis.view = cumAxis.target = 0; roundAxis.view = roundAxis.target = 0;
+  Object.assign(armAxis, { lo: -0.2, hi: 1.2, tLo: -0.2, tHi: 1.2 });
+  syncControls(); kick();
+}
+function lerpR(from, to, q) { if (to === Infinity) return Infinity; if (from === Infinity) from = Math.max(to * 1.6, 3.2); return lerp(from, to, q); }
+
+// What is drawn at time `now`: the truth, or a beat of the round being animated.
+// choose: the winner is lit, nothing has changed yet. pull: count and estimate move. shrink: widths move.
+const PA = 0.36, PB = 0.64;
+function view(now) {
+  const s = snap(run);
+  const V = { t: run.t, tHist: run.t, n: s.n, mh: s.mh, r: s.r, lab: s, arg: s.arg, phase: null, ev: null, sel: 0, miss: run.miss, R: run.R };
+  if (!anim) return V;
+  const ev = anim.ev, B = ev.before, A = ev.after, k = ev.arm, p = clamp((now - anim.start) / anim.dur, 0, 1);
+  V.ev = ev;
+  if (p < PA) {
+    Object.assign(V, { t: B.t, tHist: ev.t - 1, n: B.n, mh: B.mh, r: B.r, lab: B, arg: B.arg, phase: "select", sel: easeIO(p / PA), miss: ev.missBefore, R: ev.Rbefore });
+  } else if (p < PB) {
+    const q = easeIO((p - PA) / (PB - PA)), n = B.n.slice(), mh = B.mh.slice();
+    n[k] = lerp(B.n[k], A.n[k], q); mh[k] = B.n[k] ? lerp(B.mh[k], A.mh[k], q) : A.mh[k];
+    const U = A.mh.map((m, j) => A.n[j] ? m + B.r[j] : Infinity);
+    Object.assign(V, { t: B.t, tHist: ev.t, n, mh, r: B.r, lab: { n: A.n, S: A.S, mh: A.mh, r: B.r, U }, arg: B.arg, phase: "pull", sel: 1, pullQ: q, miss: ev.missBefore });
+  } else {
+    const q = easeIO((p - PB) / (1 - PB));
+    Object.assign(V, { n: A.n, mh: A.mh, r: A.r.map((ra, j) => lerpR(B.r[j], ra, q)), phase: "shrink", sel: 1, shrinkQ: q });
+  }
+  return V;
+}
+
+// ---------- stepping ----------
+function startAnim(now, dur) {
+  if (run.t >= run.cfg.T) return false;
+  const ev = stepRun(run);
+  anim = { ev, start: now, dur: Math.max(1, dur) };
+  pullAt[ev.arm] = now + dur * PA;
+  onRoundsDone();
+  return true;
+}
+function finishAnim(now) { if (!anim) return; pullAt[anim.ev.arm] = now; anim = null; }
+function doStep() {
+  const now = performance.now();
+  setAuto(false); finishAnim(now); pulseMs = 700;
+  if (!startAnim(now, reducedMotion.matches ? 1 : 1250)) flashDone();
+  kick();
+}
+function doRun() {
+  const now = performance.now();
+  setAuto(false); finishAnim(now);
+  const sel = $("run-n").value, N = sel === "all" ? run.cfg.T - run.t : Number(sel);
+  if (run.t >= run.cfg.T) { flashDone(); return; }
+  const before = run.n.slice();
+  for (let i = 0; i < N && run.t < run.cfg.T; i++) stepRun(run);
+  gains = { until: now + 2400, add: run.n.map((x, k) => x - before[k]) };
+  gains.add.forEach((a, k) => { if (a > 0) pullAt[k] = now; });
+  pulseMs = 900; onRoundsDone(); kick();
+}
+function setAuto(on) {
+  if (on && run.t >= run.cfg.T) { flashDone(); on = false; }
+  auto.on = on; auto.acc = 0; auto.last = performance.now(); auto.nextAt = 0;
+  $("btn-auto").textContent = on ? "❚❚ Pause" : "▶ Auto";
+  $("btn-auto").setAttribute("aria-pressed", String(on));
+  if (on) kick();
+}
+function advanceAuto(now) {
+  if (!auto.on) return;
+  if (run.t >= run.cfg.T) { setAuto(false); return; }
+  if (auto.rate < FAST && !reducedMotion.matches) {
+    if (!anim && now >= auto.nextAt) { pulseMs = 520; startAnim(now, Math.min(1100, 920 / auto.rate)); auto.nextAt = now + 1000 / auto.rate; }
+  } else {
+    if (anim) finishAnim(now);
+    const dt = Math.min(250, now - auto.last); auto.acc += dt * auto.rate / 1000;
+    let k = Math.floor(auto.acc); auto.acc -= k; pulseMs = 200;
+    let any = false;
+    while (k-- > 0 && run.t < run.cfg.T) { const ev = stepRun(run); pullAt[ev.arm] = now; any = true; }
+    if (any) onRoundsDone();
+  }
+  auto.last = now;
+}
+// Called after any rounds happen: record a finished run as a ghost for plot 04.
+function onRoundsDone() {
+  if (run.t >= run.cfg.T && !run.ghosted) {
+    run.ghosted = true;
+    const pts = [], stride = Math.max(1, Math.floor(run.cfg.T / 600));
+    for (let i = 0; i < run.cfg.T; i += stride) pts.push([i + 1, run.cum[i]]);
+    pts.push([run.cfg.T, run.R]);
+    ghosts.push({ label: `${ruleShort()} · seed ${cfg.seed}`, pts, R: run.R });
+    if (ghosts.length > 4) ghosts.shift();
+    ghostKey = armsKey();
+  }
+}
+let doneFlash = 0;
+function flashDone() { doneFlash = performance.now() + 1600; kick(); }
+const RULE_NAME = { union: "union bound", lecture: "lecture form", ucb1: "UCB1", naive: "no union bound" };
+const ruleShort = () => cfg.rule === "ucb1" ? "UCB1" : `${RULE_NAME[cfg.rule]} δ ${F.delta(cfg.delta)}`;
+
+// ---------- frame loop (only runs while something moves) ----------
+let rafId = 0;
+function kick() { if (!rafId) rafId = requestAnimationFrame(tick); }
+function tick(now) {
+  rafId = 0;
+  advanceAuto(now);
+  if (anim && now - anim.start >= anim.dur) finishAnim(now);
+  const V = view(now);
+  draw(now, V);
+  const pulsing = pullAt.some(t => now - t < pulseMs * 4);
+  if (anim || auto.on || pulsing || armAxis.easing || roundAxis.easing || (gains && now < gains.until) || Math.abs(cumAxis.view - cumAxis.target) > 1e-6 * Math.max(1, cumAxis.target) || now < doneFlash) kick();
+}
+
+// ---------- plot 01: the intervals ----------
+const IP = { l: 46, r: 64, t: 42, b: 10 };           // plot 01 and the pull strip share left/right padding, so lanes line up
+function lanes(W) { const pw = W - IP.l - IP.r, lw = pw / run.K; return { pw, lw, x: k => IP.l + (k + .5) * lw }; }
+function glowOf(k, now, V) {
+  let g = Math.exp(-Math.max(0, now - pullAt[k]) / pulseMs);
+  if (V.ev && V.ev.arm === k) g = Math.max(g, V.sel);
+  return clamp(g, 0, 1);
+}
+// The frame always holds every finite interval and [0, 1]. It retargets in rounded steps only when an end
+// would leave it or the intervals fill less than about half of it, and eases in, so a round shows shrinking.
+function fitArms(cLo, cHi, now) {
+  const span = armAxis.tHi - armAxis.tLo;
+  if (cLo < armAxis.tLo || cHi > armAxis.tHi || cHi - cLo < 0.52 * span) {
+    const pad = 0.07 * (cHi - cLo), st = niceStep(cHi - cLo + 2 * pad, 6);
+    armAxis.tLo = Math.floor((cLo - pad) / st) * st; armAxis.tHi = Math.ceil((cHi + pad) / st) * st;
+  }
+  const dt = Math.min(64, now - (armAxis.last || now)); armAxis.last = now;
+  const w = reducedMotion.matches ? 1 : 1 - Math.exp(-dt / 130);
+  armAxis.lo += (armAxis.tLo - armAxis.lo) * w; armAxis.hi += (armAxis.tHi - armAxis.hi) * w;
+  armAxis.easing = Math.abs(armAxis.lo - armAxis.tLo) + Math.abs(armAxis.hi - armAxis.tHi) > 1e-4 * span;
+  const m = 0.02 * (cHi - cLo);
+  return [Math.min(armAxis.lo, cLo - m), Math.max(armAxis.hi, cHi + m)];
+}
+function drawArms(now, V) {
+  const { c, W, H } = prep(cv.arms), K = run.K, { pw, lw, x: LX } = lanes(W), ph = H - IP.t - IP.b;
+  let cLo = 0, cHi = 1;
+  for (let k = 0; k < K; k++) if (V.n[k] > 0 && Number.isFinite(V.r[k])) { cLo = Math.min(cLo, V.mh[k] - V.r[k]); cHi = Math.max(cHi, V.mh[k] + V.r[k]); }
+  const [yLo, yHi] = fitArms(cLo, cHi, now), Y = v => IP.t + (yHi - v) / (yHi - yLo) * ph;
+  const inFrame = v => v >= yLo && v <= yHi;
+
+  // the ruler: [0, 1] is where every mean lives
+  c.fillStyle = C.band; c.fillRect(IP.l, Y(1), pw, Y(0) - Y(1));
+  const ticks = linTicks(yLo, yHi, 7);
+  for (const v of ticks) { const y = Math.round(Y(v)) + .5; hline(c, IP.l, IP.l + pw, y, v === 0 || v === 1 ? C.line : C.hair); label(c, tickText(v), IP.l - 7, y + 3.5, { align: "right", color: v >= 0 && v <= 1 ? C.muted : C.faint, size: 10.5 }); }
+  for (const v of [0, 1]) if (!ticks.includes(v)) { const y = Math.round(Y(v)) + .5; hline(c, IP.l, IP.l + pw, y, C.line); label(c, String(v), IP.l - 7, y + 3.5, { align: "right", color: C.muted, size: 10.5 }); }
+  for (let k = 1; k < K; k++) vline(c, Math.round(IP.l + k * lw) + .5, 4, H - 4, C.hair);
+
+  // which top decides this round: during an animation the decision that was made, otherwise the next one
+  const ev = V.ev, deciding = ev && V.phase !== "shrink" ? ev.before : null;
+  let lineU, lineArm, lineAlpha = 1, nextU = -Infinity, nextArm = 0;
+  for (let k = 0; k < K; k++) { const u = V.n[k] > 0 ? V.mh[k] + V.r[k] : Infinity; if (u > nextU) { nextU = u; nextArm = k; } }
+  if (deciding) { lineU = deciding.U[ev.arm]; lineArm = ev.arm; lineAlpha = V.phase === "select" ? .45 + .55 * V.sel : 1; }
+  else { lineU = nextU; lineArm = ev ? ev.arm : nextArm; if (ev && V.phase === "shrink") lineArm = nextArm; }
+  const done = run.t >= run.cfg.T && !ev;
+  const fastMode = auto.on && auto.rate >= FAST;
+
+  // lanes
+  const wide = lw >= 104, mid = lw >= 66;
+  for (let k = 0; k < K; k++) {
+    const x = LX(k), col = C.arm[k], g = glowOf(k, now, V), isLine = k === lineArm && !done;
+    if (g > .01 || (isLine && !fastMode)) {
+      c.fillStyle = alpha(col, Math.max(.05, .05 + .13 * g));
+      c.fillRect(x - lw / 2 + 2, 2, lw - 4, H - 4);
+      if (ev && ev.arm === k && V.phase === "select") { c.strokeStyle = alpha(col, .8 * V.sel); c.lineWidth = 2; c.strokeRect(x - lw / 2 + 3, 3, lw - 6, H - 6); }
+    }
+    const best = run.gaps[k] < 1e-12;
+    label(c, `arm ${k + 1}${best ? " ★" : ""}`, x, 16, { color: col, size: 12, weight: 650, align: "center" });
+    label(c, `N = ${F.int(V.lab.n[k])}`, x, 32, { color: C.muted, size: 11, align: "center" });
+    if (gains && now < gains.until && gains.add[k] > 0) {
+      const a = clamp((gains.until - now) / 900, 0, 1);
+      label(c, `+${F.int(gains.add[k])}`, x + lw / 2 - 6, 16, { color: alpha(col, a), size: 11, weight: 700, align: "right" });
+    }
+    const n = V.n[k], m = V.mh[k], r = V.r[k];
+    if (!(n > 0) || !Number.isFinite(r)) {
+      // never pulled: the interval is the whole line
+      vline(c, x, IP.t, IP.t + ph, alpha(col, .6), 3, [6, 5]);
+      tri(c, x, IP.t - 1, 6, true, col); tri(c, x, IP.t + ph + 1, 6, false, col);
+      label(c, "U = ∞", x + 10, IP.t + 12, { color: col, size: 11.5, weight: 650, halo: true });
+      label(c, "L = −∞", x + 10, IP.t + ph - 6, { color: C.muted, size: 11, halo: true });
+      if (mid) label(c, "never pulled", x + 10, Y((yLo + yHi) / 2), { color: C.faint, size: 10.5, halo: true });
+    } else {
+      const lo = m - r, hi = m + r, yT = Y(hi), yB = Y(lo), yM = Y(m);
+      // the interval: a thick bar with both ends marked
+      c.save(); c.lineCap = "round"; c.strokeStyle = col; c.lineWidth = 4; c.beginPath(); c.moveTo(x, yT); c.lineTo(x, yB); c.stroke(); c.restore();
+      hline(c, x - 7, x + 7, yT, col, 2.5); hline(c, x - 7, x + 7, yB, col, 2.5);
+      disc(c, x, yT, 4.2, col); disc(c, x, yB, 4.2, col);
+      if (isLine && !fastMode) disc(c, x, yT, 9, null, alpha(col, V.phase === "select" ? .5 + .5 * V.sel : .7), 2);
+      // the estimate
+      disc(c, x, yM, 6.5, col, C.panel, 2.2);
+      // labels, pushed apart so the ends never sit on the estimate
+      const L = V.lab, Uv = L.n[k] > 0 ? L.U[k] : Infinity, Lv = L.n[k] > 0 ? L.mh[k] - L.r[k] : -Infinity;
+      let yU = yT, yLl = yB; if (yM - yU < 15) yU = yM - 15; if (yLl - yM < 15) yLl = yM + 15;
+      if (mid) {
+        label(c, `U ${F.index(Uv)}`, x + 12, yU + 4, { color: col, size: 11.5, weight: 700, halo: true });
+        label(c, `μ̂  ${F.mean(L.mh[k])}`, x + 12, yM + 4, { color: C.ink, size: 11, halo: true });
+        label(c, `L ${F.index(Lv)}`, x + 12, yLl + 4, { color: C.muted, size: 11, halo: true });
+        if (wide && yM - yT > 36) label(c, `r ${F.width(L.r[k])}`, x + 12, (yT + yM) / 2 + 4, { color: C.faint, size: 10.5, halo: true });
+      } else {
+        label(c, F.index(Uv), x, yT - 10, { color: col, size: 10.5, weight: 700, align: "center", halo: true });
+      }
+    }
+    // the true mean: a ring on the bar's line, draggable
+    const mu = run.mu[k], yMu = Y(mu), outside = V.miss.includes(k), tc = outside ? C.warn : C.truth;
+    disc(c, x, yMu, drag === k ? 9 : 7.5, null, tc, 2.6);
+    if (mid || focus === k || drag === k) label(c, outside ? `μ ${F.mu(mu)} outside` : `μ ${F.mu(mu)}`, x - 12, yMu + 4, { color: tc, size: 11, weight: 650, align: "right", halo: true });
+  }
+
+  // why this arm: the highest upper end, and how far every other top falls short of it
+  if (!done && Number.isFinite(lineU) && inFrame(lineU)) {
+    const y = Math.round(Y(lineU)) + .5;
+    hline(c, IP.l, IP.l + pw, y, alpha(C.ink, .85 * lineAlpha), 1.6, [7, 4]);
+    for (let k = 0; k < K; k++) {
+      if (k === lineArm || !(V.n[k] > 0) || !Number.isFinite(V.r[k])) continue;
+      const top = V.mh[k] + V.r[k], yTop = Y(top);
+      if (yTop - y < 6) continue;
+      vline(c, LX(k), y + 2, yTop - 6, alpha(C.faint, .9 * lineAlpha), 1.2, [1.5, 3]);
+      if (wide) label(c, `−${F.index(lineU - top)}`, LX(k) - 6, (y + yTop) / 2 + 4, { color: C.faint, size: 10, align: "right", halo: true });
+    }
+    // the tag lives in the right margin, off the lanes, so it never covers a top
+    const tagV = deciding ? lineU : (V.lab.n[lineArm] > 0 ? V.lab.U[lineArm] : lineU), tx = IP.l + pw + 14;
+    label(c, "max U", tx, y - 5, { color: alpha(C.muted, lineAlpha), size: 10 });
+    label(c, F.index(tagV), tx, y + 9, { color: alpha(C.ink, lineAlpha), size: 11.5, weight: 700 });
+    label(c, `arm ${lineArm + 1}`, tx, y + 21, { color: alpha(C.arm[lineArm], lineAlpha), size: 10, weight: 650 });
+  }
+  let maxLab = -Infinity; for (let k = 0; k < K; k++) { const u = V.lab.n[k] > 0 ? V.lab.U[k] : Infinity; if (u > maxLab) maxLab = u; }
+  $("maxU-leg").textContent = F.index(maxLab);
+
+  // a reward drops into the pulled lane
+  if (V.phase === "pull" && ev) {
+    const k = ev.arm, x = LX(k), col = C.arm[k], q = V.pullQ, yEnd = Y(ev.after.mh[k]);
+    const y = lerp(IP.t + 6, yEnd, easeIO(q)), a = q < .85 ? 1 : (1 - q) / .15;
+    disc(c, x, y, 11, ev.reward ? alpha(col, a) : alpha(C.panel, a), alpha(col, a), 2);
+    label(c, String(ev.reward), x, y + 4.5, { color: ev.reward ? alpha(C.panel, a) : alpha(col, a), size: 13, weight: 700, align: "center" });
+  }
+}
+
+// the pull strip under plot 01: counts on a log scale, with each worse arm's cap
+function drawPulls(now, V) {
+  const { c, W, H } = prep(cv.pulls), K = run.K, { pw, lw, x: LX } = lanes(W), T = run.cfg.T;
+  const PT = 14, PB = 4, ph = H - PT - PB, top = Math.log10(T) * 1.04;
+  const Y = v => PT + (top - v) / top * ph;
+  for (let e = 0; Math.pow(10, e) <= T; e++) { const y = Math.round(Y(e)) + .5; hline(c, IP.l, IP.l + pw, y, e === 0 ? C.line : C.hair); label(c, kfmt(Math.pow(10, e)), IP.l - 7, y + 3.5, { align: "right", color: C.faint, size: 10 }); }
+  label(c, "pulls N, log scale", IP.l + 4, 10, { color: C.faint, size: 10 });
+  for (let k = 1; k < K; k++) vline(c, Math.round(IP.l + k * lw) + .5, 0, H, C.hair);
+  const bw = clamp(lw * .36, 8, 34);
+  for (let k = 0; k < K; k++) {
+    const x = LX(k), col = C.arm[k], n = V.n[k], g = glowOf(k, now, V);
+    if (g > .01) { c.fillStyle = alpha(col, .05 + .12 * g); c.fillRect(x - lw / 2 + 2, 0, lw - 4, H); }
+    if (n >= 1) { const y = Y(Math.log10(n)); c.fillStyle = alpha(col, .8); c.fillRect(x - bw / 2, y, bw, Y(0) - y); }
+    else if (n > 0) { c.fillStyle = alpha(col, .8 * n); c.fillRect(x - bw / 2, Y(0) - 2, bw, 2); }
+    const gap = run.gaps[k];
+    if (gap > 1e-12) {
+      const ck = capOf(run.cfg, gap, V.t), over = V.lab.n[k] > ck;
+      if (ck <= T) {
+        const y = Math.round(Y(Math.log10(ck))) + .5;
+        hline(c, x - bw / 2 - 6, x + bw / 2 + 6, y, over ? C.warn : alpha(C.ink, .8), 1.5, [3, 2]);
+        if (lw > 60) label(c, `cap ${kfmt(ck)}`, x + bw / 2 + 8, y + 3.5, { color: over ? C.warn : C.muted, size: 10, halo: true });
+      } else if (lw > 60) label(c, "cap > T", x + bw / 2 + 8, PT + 4, { color: C.faint, size: 10 });
+    }
+  }
+}
+
+// ---------- plot 05: the width law ----------
+function lawRange() {
+  const T = run.cfg.T, tMax = Math.max(T, run.cfg.K);
+  const rTop = radius(run.cfg, 1, tMax), rBot = radius(run.cfg, T, tMax);
+  const gaps = run.gaps.filter(g => g > 1e-12);
+  const lo = Math.min(rBot, gaps.length ? Math.min(...gaps) / 2 : rBot) / 1.6;
+  return { lo, hi: rTop * 1.25 };
+}
+function drawLaw(now, V) {
+  const { c, W, H } = prep(cv.law), T = run.cfg.T, K = run.K;
+  const P = { l: 46, r: 16, t: 10, b: 24 }, pw = W - P.l - P.r, ph = H - P.t - P.b;
+  const { lo, hi } = lawRange();
+  const X = n => P.l + Math.log10(n) / Math.log10(T) * pw;
+  const Y = r => P.t + (Math.log10(hi) - Math.log10(r)) / (Math.log10(hi) - Math.log10(lo)) * ph;
+  for (let e = 0; Math.pow(10, e) <= T; e++) { const x = Math.round(X(Math.pow(10, e))) + .5; vline(c, x, P.t, P.t + ph, C.hair); label(c, kfmt(Math.pow(10, e)), x, H - 8, { align: "center", color: C.faint, size: 10.5 }); }
+  label(c, "pulls N", P.l + pw, H - 8, { align: "right", color: C.faint, size: 10.5 });
+  for (const v of logTicks(lo, hi)) { const y = Math.round(Y(v)) + .5; hline(c, P.l, P.l + pw, y, C.hair); label(c, tickText(v), P.l - 6, y + 3.5, { align: "right", color: C.faint, size: 10.5 }); }
+  c.save(); c.beginPath(); c.rect(P.l, P.t, pw, ph); c.clip();
+  for (let k = 0; k < K; k++) {
+    const gap = run.gaps[k]; if (!(gap > 1e-12)) continue;
+    const col = C.arm[k], y = Y(gap / 2), nStar = capConst(run.cfg, V.t) / (gap * gap);
+    const xEnd = nStar <= T ? X(Math.max(1, nStar)) : P.l + pw;
+    hline(c, P.l, xEnd, y, alpha(col, .8), 1.2, [5, 3]);
+    if (nStar <= T && nStar >= 1) { vline(c, xEnd, y, P.t + ph, alpha(col, .8), 1, [1, 3]); disc(c, xEnd, y, 3.2, null, col, 1.5); }
+    label(c, `Δ${sub(k + 1)}/2`, P.l + 4, y - 3, { color: col, size: 10 });
+  }
+  c.beginPath();
+  for (let i = 0; i <= 160; i++) { const n = Math.pow(T, i / 160), x = X(n), y = Y(radius(run.cfg, n, V.t)); if (i) c.lineTo(x, y); else c.moveTo(x, y); }
+  c.strokeStyle = C.ink; c.lineWidth = 2; c.stroke();
+  const order = [...Array(K).keys()].sort((a, b) => (V.ev && a === V.ev.arm) - (V.ev && b === V.ev.arm));
+  for (const k of order) {
+    let n = V.lab.n[k], r = V.r[k];
+    if (V.ev && V.ev.arm === k) {
+      const B = V.ev.before, A = V.ev.after;
+      if (V.phase === "select" || V.phase === "pull") { n = B.n[k]; r = B.r[k]; }
+      else { const q = V.shrinkQ; n = B.n[k] > 0 ? Math.pow(10, lerp(Math.log10(B.n[k]), Math.log10(A.n[k]), q)) : A.n[k]; r = radius(run.cfg, n, A.t); }
+    }
+    if (!(n >= 1) || !Number.isFinite(r)) continue;
+    const x = X(n), y = Y(r), col = C.arm[k], g = glowOf(k, now, V), rad = 5.5 + 2.5 * g;
+    if (g > .05) disc(c, x, y, rad + 5, alpha(col, .18 * g));
+    disc(c, x, y, rad, col, C.panel, 1.5);
+    if (focus === k || (V.ev && V.ev.arm === k)) label(c, String(k + 1), x, y - rad - 4, { color: col, size: 10.5, weight: 700, align: "center", halo: true });
+  }
+  c.restore();
+}
+
+// ---------- plots 02, 03 and 04 share the round axis ----------
+const SP = { l: 46, r: 16 };
+// The round axis grows in small rounded steps: once the newest round passes about 60% of the window, the
+// window grows to about twice the newest round, so the newest point sits near the middle until the horizon.
+function fitRounds(tH, now) {
+  const T = run.cfg.T, floor = Math.min(T, Math.max(10, 2 * run.K));
+  if (!roundAxis.target) roundAxis.target = floor;
+  if (tH > 0.6 * roundAxis.target && roundAxis.target < T) roundAxis.target = Math.min(T, Math.max(floor, niceUp(2 * tH)));
+  if (!roundAxis.view) roundAxis.view = roundAxis.target;
+  const dt = Math.min(64, now - (roundAxis.last || now)); roundAxis.last = now;
+  roundAxis.view += (roundAxis.target - roundAxis.view) * (reducedMotion.matches ? 1 : 1 - Math.exp(-dt / 120));
+  roundAxis.easing = Math.abs(roundAxis.view - roundAxis.target) > 1e-3 * roundAxis.target;
+  return Math.max(roundAxis.view, tH, 1);             // never hide the newest round
+}
+function drawStep(now, V, xMax) {
+  const { c, W, H } = prep(cv.step), K = run.K, tH = V.tHist;
+  const P = { l: SP.l, r: SP.r, t: 10, b: 30 }, pw = W - P.l - P.r, ph = H - P.t - P.b;
+  const gmax = Math.max(0.05, ...run.gaps) * 1.15;
+  const X = i => P.l + i / xMax * pw, Y = v => P.t + (gmax - v) / gmax * ph;
+  for (const v of linTicks(0, xMax, 5)) { const x = Math.round(X(v)) + .5; vline(c, x, P.t, P.t + ph, C.hair); label(c, tickText(v), x, H - 4, { align: "center", color: C.faint, size: 10.5 }); }
+  hline(c, P.l, P.l + pw, Math.round(Y(0)) + .5, C.line);
+  label(c, "0", P.l - 6, Y(0) + 3.5, { align: "right", color: C.faint, size: 10.5 });
+  for (let k = 0; k < K; k++) { const g = run.gaps[k]; if (g > 1e-12) hline(c, P.l - 5, P.l, Math.round(Y(g)) + .5, C.arm[k], 2); }
+  label(c, F.gap(Math.max(...run.gaps)), P.l - 7, Y(Math.max(...run.gaps)) + 3.5, { align: "right", color: C.faint, size: 10.5 });
+  const pxPer = pw / xMax, wStem = clamp(pxPer * .6, 1, 7), cellW = pxPer > 4 ? pxPer - 1 : Math.max(1, pxPer);
+  const stems = Array.from({ length: K }, () => new Path2D()), cells = Array.from({ length: K }, () => new Path2D());
+  const yc = Y(0) + 5;
+  for (let i = 0; i < tH; i++) {
+    const k = run.arm[i], x = X(i + .5);
+    if (run.dreg[i] > 0) { stems[k].moveTo(x, Y(0)); stems[k].lineTo(x, Y(run.dreg[i])); }
+    cells[k].rect(X(i), yc, cellW, 6);
+  }
+  for (let k = 0; k < K; k++) {
+    const dim = focus >= 0 && focus !== k ? .25 : 1;
+    c.strokeStyle = alpha(C.arm[k], (pxPer < 1.5 ? .6 : .9) * dim); c.lineWidth = wStem; c.stroke(stems[k]);
+    c.fillStyle = alpha(C.arm[k], .9 * dim); c.fill(cells[k]);
+  }
+  label(c, "pulled", P.l - 6, yc + 6, { align: "right", color: C.faint, size: 9.5 });
+  if (tH > 0) {
+    const stride = Math.max(1, Math.floor(tH / (2 * pw)));
+    c.beginPath(); c.moveTo(X(.5), Y(run.cum[0]));
+    for (let i = 0; i < tH; i += stride) c.lineTo(X(i + .5), Y(run.cum[i] / (i + 1)));
+    c.lineTo(X(tH - .5), Y(run.cum[tH - 1] / tH));
+    c.strokeStyle = C.ink; c.lineWidth = 1.6; c.stroke();
+    tri(c, X(tH - .5), P.t + 1, 4, false, C.arm[run.arm[tH - 1]]);
+  }
+}
+function drawCum(now, V, xMax) {
+  const { c, W, H } = prep(cv.cum), T = run.cfg.T, tH = V.tHist, K = run.K;
+  const P = { l: SP.l, r: SP.r + 44, t: 12, b: 24 }, pw = W - P.l - P.r, ph = H - P.t - P.b;
+  const meanGap = run.gaps.reduce((a, b) => a + b, 0) / K, Rnow = tH ? run.cum[tH - 1] : 0;
+  const tx = Math.round(xMax), Bx = capBound(run, tx), Ux = xMax * meanGap;
+  const shown = ghosts.filter(g => !(run.ghosted && g === ghosts[ghosts.length - 1]));
+  const ghostAt = g => { let v = 0; for (const [t, R] of g.pts) { if (t > xMax) break; v = R; } return v; };
+  // the regret axis grows the same way: the newest point stays around the middle to upper-middle height
+  let need = Math.max(Rnow * 1.6, 1, ...shown.map(g => ghostAt(g) * 1.1));
+  if (fit === "all") need = Math.max(need, Bx * 1.05, Ux * 1.05);
+  if (need > cumAxis.target || need < cumAxis.target / 2.5) cumAxis.target = niceUp(need);
+  if (!cumAxis.view) cumAxis.view = cumAxis.target;
+  const dt = Math.min(64, now - (cumAxis.last || now)); cumAxis.last = now;
+  cumAxis.view += (cumAxis.target - cumAxis.view) * (reducedMotion.matches ? 1 : 1 - Math.exp(-dt / 110));
+  const yTop = cumAxis.view;
+  const X = t => P.l + t / xMax * pw, Y = v => P.t + (yTop - v) / yTop * ph;
+  for (const v of linTicks(0, xMax, 5)) { const x = Math.round(X(v)) + .5; vline(c, x, P.t, P.t + ph, C.hair); label(c, tickText(v), x, H - 6, { align: "center", color: C.faint, size: 10.5 }); }
+  for (const v of linTicks(0, yTop, 4)) { const y = Math.round(Y(v)) + .5; hline(c, P.l, P.l + pw, y, v === 0 ? C.line : C.hair); label(c, tickText(v), P.l - 6, y + 3.5, { align: "right", color: C.faint, size: 10.5 }); }
+  c.save(); c.beginPath(); c.rect(P.l, P.t - 1, pw + 1, ph + 2); c.clip();
+  c.save(); c.setLineDash([1.5, 3]); c.strokeStyle = C.faint; c.lineWidth = 1.4; c.beginPath(); c.moveTo(X(0), Y(0)); c.lineTo(X(xMax), Y(Ux)); c.stroke(); c.restore();
+  c.save(); c.setLineDash([6, 4]); c.strokeStyle = C.muted; c.lineWidth = 1.4; c.beginPath();
+  for (let j = 0; j <= 200; j++) { const t = Math.round(xMax * j / 200), y = Y(capBound(run, t)); if (j) c.lineTo(X(t), y); else c.moveTo(X(t), y); }
+  c.stroke(); c.restore();
+  for (const g of shown) { c.beginPath(); g.pts.forEach(([t, R], j) => j ? c.lineTo(X(t), Y(R)) : c.moveTo(X(t), Y(R))); c.strokeStyle = alpha(C.faint, .9); c.lineWidth = 1.2; c.stroke(); }
+  if (tH > 0) {
+    const stride = Math.max(1, Math.floor(tH / (2 * pw)));
+    c.beginPath(); c.moveTo(X(0), Y(0));
+    for (let i = 0; i < tH; i += stride) c.lineTo(X(i + 1), Y(run.cum[i]));
+    c.lineTo(X(tH), Y(Rnow)); c.strokeStyle = C.ink; c.lineWidth = 2.2; c.lineJoin = "round"; c.stroke();
+    disc(c, X(tH), Y(Rnow), 3.5, C.ink);
+  }
+  c.restore();
+  const edge = (val, text, color) => { const y = val <= yTop ? Y(val) : P.t + 4; label(c, (val > yTop ? "↑ " : "") + text, P.l + pw + 4, y + 3.5, { color, size: 10 }); };
+  edge(Ux, "uniform", C.faint);
+  edge(Bx, "cap bound", C.muted);
+  if (tH > 0) label(c, F.regret(Rnow), X(tH) + 6, Y(Rnow) - 6, { color: C.ink, size: 11, weight: 650, halo: true });
+  shown.forEach(g => { const v = ghostAt(g), y = v <= yTop ? Y(v) : P.t + 4; label(c, `${g.label}: ${F.regret(v)}`, P.l + pw - 4, y - 4, { color: C.faint, size: 10, align: "right", halo: true }); });
+}
+
+// plot 02: reward so far. Optimal t·μ*, UCB's expected reward Σ μ at the pulled arms (so optimal minus UCB is
+// exactly the regret R_t of plot 04), uniform random t·mean μ, and the rewards UCB actually collected, faint.
+function drawReward(now, V, xMax) {
+  const { c, W, H } = prep(cv.rew), tH = V.tHist, K = run.K, best = run.best;
+  const P = { l: SP.l, r: SP.r + 44, t: 12, b: 24 }, pw = W - P.l - P.r, ph = H - P.t - P.b;
+  const meanMu = run.mu.reduce((a, b) => a + b, 0) / K, yTop = niceUp(Math.max(1, xMax * best * 1.06));
+  const X = t => P.l + t / xMax * pw, Y = v => P.t + (yTop - v) / yTop * ph;
+  for (const v of linTicks(0, xMax, 5)) { const x = Math.round(X(v)) + .5; vline(c, x, P.t, P.t + ph, C.hair); label(c, tickText(v), x, H - 6, { align: "center", color: C.faint, size: 10.5 }); }
+  for (const v of linTicks(0, yTop, 4)) { const y = Math.round(Y(v)) + .5; hline(c, P.l, P.l + pw, y, v === 0 ? C.line : C.hair); label(c, tickText(v), P.l - 6, y + 3.5, { align: "right", color: C.faint, size: 10.5 }); }
+  c.save(); c.beginPath(); c.rect(P.l, P.t - 1, pw + 1, ph + 2); c.clip();
+  c.save(); c.setLineDash([1.5, 3]); c.strokeStyle = C.faint; c.lineWidth = 1.4; c.beginPath(); c.moveTo(X(0), Y(0)); c.lineTo(X(xMax), Y(xMax * meanMu)); c.stroke(); c.restore();
+  c.strokeStyle = C.truth; c.lineWidth = 2; c.beginPath(); c.moveTo(X(0), Y(0)); c.lineTo(X(xMax), Y(xMax * best)); c.stroke();
+  if (tH > 0) {
+    const stride = Math.max(1, Math.floor(tH / (2 * pw)));
+    c.beginPath(); c.moveTo(X(0), Y(0));
+    for (let i = 0; i < tH; i += stride) c.lineTo(X(i + 1), Y(run.cumRew[i]));
+    c.lineTo(X(tH), Y(run.cumRew[tH - 1])); c.strokeStyle = alpha(C.ink, .32); c.lineWidth = 1.2; c.stroke();
+    c.beginPath(); c.moveTo(X(0), Y(0));
+    for (let i = 0; i < tH; i += stride) c.lineTo(X(i + 1), Y((i + 1) * best - run.cum[i]));
+    const eNow = tH * best - run.cum[tH - 1];
+    c.lineTo(X(tH), Y(eNow)); c.strokeStyle = C.ink; c.lineWidth = 2.2; c.lineJoin = "round"; c.stroke();
+    // the regret, drawn as the gap it is
+    const x = X(tH), y0 = Y(tH * best), y1 = Y(eNow);
+    if (y1 - y0 > 3) { vline(c, x, y0, y1, C.warn, 2); hline(c, x - 4, x + 4, y0, C.warn, 2); hline(c, x - 4, x + 4, y1, C.warn, 2); }
+    disc(c, x, y1, 3.5, C.ink);
+    label(c, `R ${F.regret(run.cum[tH - 1])}`, x + 7, (y0 + y1) / 2 + 4, { color: C.warn, size: 10.5, weight: 650, halo: true });
+  }
+  c.restore();
+  const edge = (val, text, color) => { const y = val <= yTop ? Y(val) : P.t + 4; label(c, text, P.l + pw + 4, y + 3.5, { color, size: 10, weight: 650 }); };
+  edge(xMax * best, "optimal", C.truth); edge(xMax * meanMu, "uniform", C.faint);
+}
+
+// ---------- the rail, the narration and the legends ----------
+const put = (el, v) => { if (el.textContent !== v) el.textContent = v; };
+const html = (el, v) => { if (el._h !== v) { el.innerHTML = v; el._h = v; } };
+const frac = (a, b) => `<span class="frac"><span>${a}</span><span>${b}</span></span>`;
+const sqrt = x => `<span class="sqrt"><span>${x}</span></span>`;
+const hat = s => `<span class="hat"><i>${s}</i></span>`;
+const sb = k => `<sub>${k + 1}</sub>`;
+
+// The upper end of arm k as the decision read it: symbolic, then exact substitution, then the rounded terms.
+function cascade(k, S) {
+  const n = S.n[k], lhs = `<span class="lhs"><i>U</i>${sb(k)}</span>`, row = (left, right) => `<div class="row">${left}<span class="rhs">${right}</span></div>`;
+  if (!(n > 0)) return row(lhs, "= ∞") + `<div class="row"><span class="dim">arm ${k + 1} has never been pulled, so its interval is the whole line and optimism tries it first.</span></div>`;
+  let sym, subst;
+  if (cfg.rule === "union") { sym = sqrt(frac(`ln(2<i>KT</i>/<i>δ</i>)`, `2<i>N</i>${sb(k)}`)); subst = sqrt(frac(`ln(2·${cfg.K}·${cfg.T}/${F.delta(cfg.delta)})`, `2·${n}`)); }
+  else if (cfg.rule === "lecture") { sym = sqrt(frac(`ln(<i>KT</i>/<i>δ</i>)`, `<i>N</i>${sb(k)}`)); subst = sqrt(frac(`ln(${cfg.K}·${cfg.T}/${F.delta(cfg.delta)})`, `${n}`)); }
+  else if (cfg.rule === "naive") { sym = sqrt(frac(`ln(2/<i>δ</i>)`, `2<i>N</i>${sb(k)}`)); subst = sqrt(frac(`ln(2/${F.delta(cfg.delta)})`, `2·${n}`)); }
+  else { sym = sqrt(frac(`2 ln <i>t</i>`, `<i>N</i>${sb(k)}`)); subst = sqrt(frac(`2 ln ${Math.max(S.t, cfg.K)}`, `${n}`)); }
+  const m = S.mh[k], r = S.r[k], U = S.U[k];
+  const eqU = F.index(roundTo(m, 3) + roundTo(r, 3)) === F.index(U) ? "=" : "≈";
+  return row(lhs, `= ${hat("μ")}${sb(k)} + ${sym}`) +
+         row(`<span class="eq">=</span>`, `${frac(S.S[k], n)} + ${subst}`) +
+         row(`<span class="eq">=</span>`, `${F.mean(m)} + ${F.width(r)}`) +
+         row(`<span class="eq">${eqU}</span>`, `<b>${F.index(U)}</b>`);
+}
+function cascadeNote() {
+  const KT = F.int(cfg.K * cfg.T), one = F.L(Math.log(2 / cfg.delta));
+  if (cfg.rule === "union") return `<b>L</b> = ln(2<i>KT</i>/<i>δ</i>) = <b>${F.L(logTerm(cfg, 0))}</b>: the price of holding <b>${KT}</b> intervals at once. One interval alone would need ln(2/δ) = ${one}.`;
+  if (cfg.rule === "lecture") return `ln(<i>KT</i>/<i>δ</i>) = <b>${F.L(logTerm(cfg, 0))}</b> over <i>N</i>, not 2<i>N</i>: about √2 wider than the tight union bound, for the same <b>${KT}</b> intervals.`;
+  if (cfg.rule === "naive") return `ln(2/<i>δ</i>) = <b>${one}</b>: one interval's price, paid for all <b>${KT}</b> intervals the run can read. With the union bound it would be ${F.L(Math.log(2 * cfg.K * cfg.T / cfg.delta))}.`;
+  const t = Math.max(run.t, cfg.K); return `At round ${F.int(t)} each interval misses with probability at most 2<i>t</i><sup>−4</sup>, and ln <i>t</i> = <b>${F.L(Math.log(t))}</b> keeps growing, so the widths never stop allowing a second look.`;
+}
+function narration(V) {
+  const ev = V.ev || run.last;
+  if (!ev || run.t === 0) return `No pulls yet. Every upper end is ∞, so rounds 1 to ${run.K} pull each arm once, left to right. Press <b>Step</b> to watch one round.`;
+  const k = ev.arm, B = ev.before, s = ev.second, rew = V.phase === "select" ? "…" : String(ev.reward);
+  const regret = V.phase === "select" ? "" : ` Regret +${F.gap(ev.dreg)}.`;
+  const kinds = [0, 0, 0]; for (let i = 0; i < V.tHist; i++) kinds[run.kind[i]]++;
+  const mix = `<br><span class="mix">first pulls ${F.int(kinds[0])} · exploit ${F.int(kinds[1])} · explore ${F.int(kinds[2])}</span>`;
+  if (ev.kind === 0) return `<b>Round ${F.int(ev.t)}:</b> arm ${k + 1} had never been pulled, so its upper end was ∞. Reward <b>${rew}</b>.${regret}${mix}`;
+  const vs = s >= 0 ? `, ${F.index(B.U[k] - B.U[s])} above arm ${s + 1}'s ${F.index(B.U[s])}` : "";
+  const why = ev.kind === 1 ? `Its estimate ${F.mean(B.mh[k])} is also the best, so this pull <b>exploits</b>.`
+    : `Its estimate ${F.mean(B.mh[k])} trails arm ${ev.lead + 1}'s ${F.mean(B.mh[ev.lead])}: its width won the pull, so this one <b>explores</b>.`;
+  return `<b>Round ${F.int(ev.t)}:</b> arm ${k + 1} had the highest upper end, ${F.index(B.U[k])}${vs}. ${why} Reward <b>${rew}</b>.${regret}${mix}`;
+}
+function checksHtml() {
+  const ch = runChecks(run), items = [], t = run.t;
+  const li = (ok, main, small) => items.push(`<li class="${ok ? "ok" : "bad"}"><span class="mark">${ok ? "✓" : "✗"}</span><span>${main}${small ? `<small>${small}</small>` : ""}</span></li>`);
+  li(ch.sumN === t, `<span class="m">Σ<sub><i>k</i></sub> <i>N</i><sub><i>k</i></sub> = <i>t</i></span>: ${F.int(ch.sumN)} = ${F.int(t)}`);
+  li(ch.twoWays, `regret two ways: per round ${F.regret(run.R)}, gaps × pulls ${F.regret(ch.viaCounts)}`);
+  const guard = cfg.rule === "union" ? `chance of any miss in the whole run ≤ δ = ${F.delta(cfg.delta)}` : cfg.rule === "lecture" ? `chance of any miss ≤ 2δ²/KT` : cfg.rule === "ucb1" ? "each interval misses with probability ≤ 2t⁻⁴" : "no guarantee: the union bound was dropped";
+  if (!run.miss.length) li(true, "every true mean sits inside its interval", `${run.missRounds ? `missed in ${F.int(run.missRounds)} of ${F.int(t)} rounds so far; ` : ""}${guard}`);
+  else li(false, `${run.miss.map(k => "arm " + (k + 1)).join(", ")}: true mean outside the interval`, `missed in ${F.int(run.missRounds)} of ${F.int(t)} rounds; ${guard}`);
+  li(!ch.over.length, ch.over.length ? `${ch.over.map(k => "arm " + (k + 1)).join(", ")} passed its cap` : "every worse arm is under its cap", "caps hold whenever every interval has held");
+  li(ch.underBound, `regret under the cap bound: ${F.regret(run.R)} ≤ ${F.regret(ch.B)}`);
+  return items.join("");
+}
+function drawRail(now, V) {
+  const T = run.cfg.T, tH = V.tHist;
+  put($("t-now"), F.int(tH)); put($("t-max"), F.int(T));
+  $("t-bar").style.width = (100 * tH / T).toFixed(2) + "%";
+  const ph = $("phase"), phase = V.phase ? { select: "choosing", pull: "pulling", shrink: "shrinking" }[V.phase] : now < doneFlash ? "horizon reached" : run.t >= T ? "done" : "";
+  put(ph, phase); ph.classList.toggle("on", !!V.phase || now < doneFlash);
+  const R = tH ? run.cum[tH - 1] : 0, meanGap = run.gaps.reduce((a, b) => a + b, 0) / run.K;
+  put($("R-val"), F.regret(R));
+  html($("R-sub"), tH ? `per round <b>${fx(R / tH, 3)}</b>. Uniform random would be near <b>${F.regret(tH * meanGap)}</b> by now.` : "The mean reward given up by not pulling the best arm.");
+  const title = $("casc-title");
+  if (focus >= 0 && !V.ev) {
+    const S = snap(run), lead = S.arg;
+    put(title, `Arm ${focus + 1} now, for round ${F.int(run.t + 1)}`);
+    html($("casc"), cascade(focus, S));
+    html($("casc-after"), run.t >= T ? "" : focus === lead ? "The highest upper end: it is pulled next." : `Falls short of arm ${lead + 1} (${F.index(S.U[lead])}) by ${F.index(S.U[lead] - S.U[focus])}.`);
+  } else if (V.ev || run.last) {
+    const ev = V.ev || run.last, k = ev.arm, B = ev.before, A = ev.after;
+    put(title, `Round ${F.int(ev.t)}: arm ${k + 1}'s upper end`);
+    html($("casc"), cascade(k, B));
+    const showN = V.phase !== "select", showR = !V.phase || V.phase === "shrink";
+    html($("casc-after"), !showN ? "the highest of all: pulling…" : `after the pull: N <b>${B.n[k]} → ${A.n[k]}</b> · μ̂ <b>${B.n[k] ? F.mean(B.mh[k]) : "—"} → ${F.mean(A.mh[k])}</b>` + (showR ? ` · r <b>${F.width(B.r[k])} → ${F.width(A.r[k])}</b>` : ""));
+  } else {
+    put(title, "Round 1");
+    html($("casc"), cascade(0, snap(run)));
+    html($("casc-after"), "");
+  }
+  html($("casc-note"), cascadeNote());
+  html($("narr"), narration(V));
+  html($("checks"), checksHtml());
+  const done = run.t >= T;
+  $("btn-step").disabled = done; $("btn-run").disabled = done;
+}
+function drawLegends(V) {
+  const T = run.cfg.T;
+  const law = cfg.rule === "union" ? `r(N) = √(L / 2N), L = ${F.L(logTerm(cfg, 0))}` : cfg.rule === "lecture" ? `r(N) = √(ln(KT/δ) / N) = √(${F.L(logTerm(cfg, 0))} / N)` : cfg.rule === "naive" ? `r(N) = √(ln(2/δ) / 2N) = √(${F.L(logTerm(cfg, 0))} / 2N)` : `r(N) = √(2 ln t / N), ln t = ${F.L(logTerm(cfg, V.t))}`;
+  html($("leg-law"), `<span><i class="sw"></i>${law}</span><span><i class="sw dash" style="border-color:var(--muted)"></i>half a gap <span class="m"><i>Δ</i><sub><i>k</i></sub>/2</span></span><span><i class="sw disc"></i>arms at (<span class="m"><i>N</i><sub><i>k</i></sub>, <i>r</i><sub><i>k</i></sub></span>)</span>`);
+  const tH = V.tHist, avg = tH ? run.cum[tH - 1] / tH : 0;
+  html($("leg-step"), `<span><i class="sw"></i>running average <span class="m"><i>R</i><sub><i>t</i></sub>/<i>t</i></span> <b>${fx(avg, 3)}</b></span><span>stems come in ${run.gaps.filter(g => g > 1e-12).length} heights: the gaps</span><span>strip: which arm each round pulled</span>`);
+  const BT = capBound(run, T), meanGap = run.gaps.reduce((a, b) => a + b, 0) / run.K, Rn = tH ? run.cum[tH - 1] : 0;
+  html($("leg-cum"), `<span><i class="sw"></i><span class="m"><i>R</i><sub><i>t</i></sub></span> <b>${F.regret(Rn)}</b></span><span><i class="sw dash" style="border-color:var(--muted)"></i>cap bound by <i>T</i> <b>${F.regret(BT)}</b></span><span><i class="sw dot2" style="border-color:var(--faint)"></i>uniform by <i>T</i> <b>${F.regret(T * meanGap)}</b></span>`);
+  html($("foot-cum"), ghosts.length ? `Faint curves: finished runs on these arms (${ghosts.map(g => g.label).join("; ")}). Switch the rule on the same seed and run again to compare.` : `The dashed curve assumes every interval held, capping each worse arm as in the pull strip. Finish a run, then switch the rule on the same seed to compare.`);
+  const tR = V.tHist, meanMu = run.mu.reduce((a, b) => a + b, 0) / run.K, Rr = tR ? run.cum[tR - 1] : 0;
+  html($("leg-rew"), `<span><i class="sw" style="border-color:var(--truth)"></i>optimal <span class="m"><i>t</i><i>μ</i><sup>*</sup></span> <b>${F.regret(tR * run.best)}</b></span><span><i class="sw"></i>UCB, expected <b>${F.regret(tR * run.best - Rr)}</b></span><span><i class="sw" style="border-color:var(--faint)"></i>UCB, rewards that landed <b>${F.int(tR ? run.cumRew[tR - 1] : 0)}</b></span><span><i class="sw dot2" style="border-color:var(--faint)"></i>uniform <b>${F.regret(tR * meanMu)}</b></span><span><i class="sw" style="border-color:var(--warn)"></i>gap = <span class="m"><i>R</i><sub><i>t</i></sub></span> <b>${F.regret(Rr)}</b></span>`);
+  put($("status"), `${ruleShort()} · seed ${cfg.seed} · T ${F.int(T)}`);
+}
+function draw(now, V) {
+  const xMax = fitRounds(V.tHist, now);
+  drawArms(now, V); drawPulls(now, V); drawLaw(now, V); drawReward(now, V, xMax); drawStep(now, V, xMax); drawCum(now, V, xMax);
+  drawRail(now, V); drawLegends(V);
+}
+
+// ---------- controls ----------
+const muRows = $("mu-rows");
+for (let k = 0; k < 10; k++) {
+  const row = document.createElement("div"); row.className = "mu-row"; row.style.setProperty("--c", `var(--a${k + 1})`);
+  row.innerHTML = `<label for="mu-${k}">arm ${k + 1}</label><input type="range" id="mu-${k}" min="0" max="1" step="0.01"><output id="mu-${k}-out"></output>`;
+  muRows.appendChild(row);
+  row.querySelector("input").addEventListener("input", e => { cfg.mu[k] = round2(+e.target.value); restart(); });
+}
+const presetBox = $("presets");
+for (const p of PRESETS) {
+  const b = document.createElement("button"); b.type = "button"; b.textContent = p.label; b.dataset.id = p.id;
+  b.addEventListener("click", () => { const vals = p.make(cfg.K); vals.forEach((v, k) => cfg.mu[k] = v); restart(); });
+  presetBox.appendChild(b);
+}
+function syncControls() {
+  $("K").value = cfg.K; put($("K-out"), String(cfg.K));
+  for (let k = 0; k < 10; k++) {
+    const row = $("mu-" + k).parentElement; row.hidden = k >= cfg.K;
+    $("mu-" + k).value = cfg.mu[k]; put($("mu-" + k + "-out"), F.mu(cfg.mu[k]));
+    row.querySelector("label").classList.toggle("best", k < cfg.K && run.gaps[k] < 1e-12);
+  }
+  for (const b of presetBox.children) { const p = PRESETS.find(x => x.id === b.dataset.id), vals = p.make(cfg.K); b.setAttribute("aria-pressed", String(vals.every((v, k) => Math.abs(v - cfg.mu[k]) < 1e-9))); }
+  $("delta").value = Math.round(DELTA.from(cfg.delta)); put($("delta-out"), F.delta(cfg.delta));
+  $("delta").disabled = cfg.rule === "ucb1"; $("delta-row").classList.toggle("disabled", cfg.rule === "ucb1");
+  $("T").value = Math.round(HORIZON.from(cfg.T)); put($("T-out"), F.int(cfg.T));
+  $("speed").value = Math.round(SPEED.from(auto.rate)); put($("speed-out"), `${F.rate(auto.rate)} / s`);
+  put($("seed-out"), String(cfg.seed));
+  for (const r of document.querySelectorAll('input[name="rule"]')) r.checked = r.value === cfg.rule;
+}
+$("K").addEventListener("input", e => { cfg.K = +e.target.value; restart(); });
+$("delta").addEventListener("input", e => { cfg.delta = sig2(DELTA.to(+e.target.value)); restart(); });
+$("T").addEventListener("input", e => { cfg.T = Math.max(50, Math.round(sig2(HORIZON.to(+e.target.value)))); restart(); });
+$("speed").addEventListener("input", e => { auto.rate = sig2(SPEED.to(+e.target.value)); put($("speed-out"), `${F.rate(auto.rate)} / s`); auto.nextAt = 0; });
+for (const r of document.querySelectorAll('input[name="rule"]')) r.addEventListener("change", e => { if (e.target.checked) { cfg.rule = e.target.value; restart(); } });
+$("btn-step").addEventListener("click", doStep);
+$("btn-run").addEventListener("click", doRun);
+$("btn-auto").addEventListener("click", () => setAuto(!auto.on));
+$("btn-reset").addEventListener("click", () => restart());
+$("btn-seed").addEventListener("click", () => { cfg.seed += 1; restart(); });
+for (const b of document.querySelectorAll("[data-fit]")) b.addEventListener("click", () => { fit = b.dataset.fit; for (const x of document.querySelectorAll("[data-fit]")) x.setAttribute("aria-pressed", String(x === b)); kick(); });
+addEventListener("keydown", e => {
+  if (e.target.closest && e.target.closest("input, select, textarea")) return;
+  if (e.key === "ArrowRight") { e.preventDefault(); doStep(); }
+  else if (e.key === " " && !(e.target.closest && e.target.closest("button, summary"))) { e.preventDefault(); setAuto(!auto.on); }
+  else if (e.key === "r" || e.key === "R") restart();
+});
+
+// hover an arm in plot 01 or the strip; drag a true mean (its ring) in plot 01
+function laneAt(canvas, e) { const r = canvas.getBoundingClientRect(), x = e.clientX - r.left, { pw, lw } = lanes(r.width); if (x < IP.l || x > IP.l + pw) return -1; return clamp(Math.floor((x - IP.l) / lw), 0, run.K - 1); }
+const armY = (r, v) => { const ph = r.height - IP.t - IP.b; return IP.t + (armAxis.hi - v) / (armAxis.hi - armAxis.lo) * ph; };
+function muAt(e) { const r = cv.arms.getBoundingClientRect(), ph = r.height - IP.t - IP.b; return armAxis.hi - (e.clientY - r.top - IP.t) / ph * (armAxis.hi - armAxis.lo); }
+function nearMu(e, k) { const r = cv.arms.getBoundingClientRect(); return Math.abs(e.clientY - r.top - armY(r, run.mu[k])) < 11; }
+for (const canvas of [cv.arms, cv.pulls]) {
+  canvas.addEventListener("pointermove", e => {
+    if (drag >= 0 && canvas === cv.arms) { const v = round2(clamp(muAt(e), 0, 1)); if (v !== cfg.mu[drag]) { cfg.mu[drag] = v; restart(); } return; }
+    const k = laneAt(canvas, e); if (k !== focus) { focus = k; kick(); }
+    if (canvas === cv.arms) canvas.style.cursor = k >= 0 && nearMu(e, k) ? "ns-resize" : "default";
+  });
+  canvas.addEventListener("pointerleave", () => { if (drag < 0 && focus !== -1) { focus = -1; kick(); } });
+}
+cv.arms.addEventListener("pointerdown", e => { const k = laneAt(cv.arms, e); if (k >= 0 && nearMu(e, k)) { drag = k; cv.arms.setPointerCapture(e.pointerId); e.preventDefault(); kick(); } });
+const endDrag = () => { if (drag >= 0) { drag = -1; kick(); } };
+cv.arms.addEventListener("pointerup", endDrag); cv.arms.addEventListener("pointercancel", endDrag);
+
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { readColors(); kick(); });
+new ResizeObserver(() => kick()).observe(document.querySelector(".layout"));
+
+readColors(); ghostKey = armsKey(); syncControls(); kick();
+// A small console surface for inspection: ucb.run, ucb.snap(), ucb.checks(), ucb.drawOnce() returns milliseconds.
+window.ucb = { cfg, get run() { return run; }, snap: () => snap(run), checks: () => runChecks(run), capBound: t => capBound(run, t), axis: () => ({ ...armAxis }), rounds: () => ({ ...roundAxis }), regretAxis: () => ({ ...cumAxis }),
+  drawOnce: () => { const t0 = performance.now(); draw(t0, view(t0)); return performance.now() - t0; } };
+})();
+</script>
+</body>
+</html>
