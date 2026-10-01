@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Diffusion on a rod</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    --bg: #e8eaee;
+    --ink: #1c2028;
+    --muted: #5e6571;
+    --faint: #b6bbc4;
+    --rule: #d3d6dc;
+    --bar: #262b35;
+    --steel: #9aa1ab;
+    --track: #c9cdd5;
+    --focus: #2d5bd1;
+    --glow-blend: source-over;
+    --glow-alpha: 0.5;
+    --sheen: 0.38;
+    --serif: "Newsreader", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: "Instrument Sans", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #191c23;
+      --ink: #ebe7df;
+      --muted: #9aa0ac;
+      --faint: #4a505c;
+      --rule: #2b3039;
+      --bar: #ddd6c6;
+      --steel: #4b525e;
+      --track: #373d49;
+      --focus: #8fb1ff;
+      --glow-blend: lighter;
+      --glow-alpha: 0.8;
+      --sheen: 0.2;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #191c23;
+    --ink: #ebe7df;
+    --muted: #9aa0ac;
+    --faint: #4a505c;
+    --rule: #2b3039;
+    --bar: #ddd6c6;
+    --steel: #4b525e;
+    --track: #373d49;
+    --focus: #8fb1ff;
+    --glow-blend: lighter;
+    --glow-alpha: 0.8;
+    --sheen: 0.2;
+    color-scheme: dark;
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); background: var(--bg); }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: clamp(20px, 4vw, 48px) clamp(16px, 4vw, 40px) 48px;
+  }
+
+  /* Header */
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 18px 40px;
+    margin-bottom: 20px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(30px, 4.4vw, 44px);
+    line-height: 1.02;
+    letter-spacing: -0.015em;
+    margin: 0 0 12px;
+  }
+  .eq {
+    font-family: var(--serif);
+    font-size: 20px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.28em;
+  }
+  .eq i { font-style: italic; }
+  .frac {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1.12;
+    font-size: 0.9em;
+  }
+  .frac > span:first-child { border-bottom: 1px solid currentColor; padding: 0 0.2em 0.06em; }
+  .frac > span:last-child { padding: 0.06em 0.2em 0; }
+  .readout { display: flex; gap: clamp(18px, 3vw, 36px); margin: 0; }
+  .readout div { min-width: 62px; }
+  .readout dt { font-size: 12.5px; color: var(--muted); margin-bottom: 1px; }
+  .readout dd {
+    margin: 0;
+    font-size: 23px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  /* Stage */
+  canvas {
+    display: block;
+    width: 100%;
+    touch-action: none;
+    cursor: crosshair;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .hint {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 4px 24px;
+    font-size: 13px;
+    color: var(--muted);
+    margin: 4px 0 0;
+  }
+  .touch-only { display: none; }
+  @media (hover: none) {
+    .touch-only { display: inline; }
+    .mouse-only { display: none; }
+  }
+
+  /* Controls */
+  .controls {
+    margin-top: 22px;
+    border-top: 1px solid var(--rule);
+    padding-top: 20px;
+    display: grid;
+    gap: 26px;
+  }
+  .transport { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .spacer { flex: 1 1 12px; }
+  .btn {
+    font: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    height: 36px;
+    padding: 0 14px;
+    border-radius: 8px;
+    border: 1px solid var(--rule);
+    background: transparent;
+    color: var(--ink);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: border-color .15s, opacity .15s;
+  }
+  .btn:hover { border-color: var(--faint); }
+  .btn:disabled { opacity: 0.38; cursor: default; }
+  .btn:disabled:hover { border-color: var(--rule); }
+  .btn svg { width: 13px; height: 13px; flex: none; }
+  .btn.primary {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--bg);
+    min-width: 98px;
+    justify-content: center;
+  }
+  .divider { width: 1px; height: 22px; background: var(--rule); margin: 0 4px; }
+  .speed { display: flex; align-items: center; gap: 12px; width: min(100%, 260px); }
+  .speed .lbl { font-size: 13.5px; white-space: nowrap; }
+  .speed output { font-size: 13.5px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 42px; text-align: right; }
+
+  .groups {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.55fr);
+    gap: 26px 56px;
+  }
+  @media (max-width: 780px) { .groups { grid-template-columns: minmax(0, 1fr); } }
+  fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+  legend {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 18px;
+    padding: 0;
+    margin-bottom: 12px;
+  }
+  .rows {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 18px 28px;
+    align-items: start;
+  }
+  .field { display: grid; gap: 7px; }
+  .top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 13.5px;
+  }
+  .top i { font-family: var(--serif); font-size: 15px; }
+  .top output { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .note { font-family: var(--serif); font-size: 14px; color: var(--muted); line-height: 1.2; }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 20px;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+    --a: 0%;
+    --b: 50%;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height: 2px;
+    border-radius: 2px;
+    background: linear-gradient(to right, var(--track) 0 var(--a), var(--ink) var(--a) var(--b), var(--track) var(--b) 100%);
+  }
+  input[type=range]::-moz-range-track {
+    height: 2px;
+    border-radius: 2px;
+    background: linear-gradient(to right, var(--track) 0 var(--a), var(--ink) var(--a) var(--b), var(--track) var(--b) 100%);
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -6px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--ink);
+    box-shadow: 0 0 0 3px var(--bg);
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--ink);
+    box-shadow: 0 0 0 3px var(--bg);
+  }
+
+  .seg {
+    display: inline-flex;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 2px;
+    gap: 2px;
+    width: max-content;
+  }
+  .seg button {
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    height: 28px;
+    padding: 0 11px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 6px; }
+  canvas:focus-visible { outline-offset: 6px; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="head">
+    <div>
+      <h1>Diffusion on a rod</h1>
+      <p class="eq" aria-label="d rho d t equals minus v d rho d x plus D d squared rho d x squared">
+        <span class="frac"><span>∂<i>ρ</i></span><span>∂<i>t</i></span></span>
+        <span>=</span>
+        <span>−<i>v</i></span>
+        <span class="frac"><span>∂<i>ρ</i></span><span>∂<i>x</i></span></span>
+        <span>+</span>
+        <i>D</i>
+        <span class="frac"><span>∂²<i>ρ</i></span><span>∂<i>x</i>²</span></span>
+      </p>
+    </div>
+    <dl class="readout" aria-live="off">
+      <div><dt>Time</dt><dd id="rT">0.00</dd></div>
+      <div><dt>Mean position</dt><dd id="rMean">0.00</dd></div>
+      <div><dt>Spread σ</dt><dd id="rSig">0.00</dd></div>
+    </dl>
+  </header>
+
+  <section aria-label="Simulation">
+    <canvas id="cv" role="img" aria-label="Probability density above a heated rod"></canvas>
+    <p class="hint">
+      <span class="mouse-only">Drag across the rod or the plot to paint heat. Shift-drag or right-drag removes it.</span>
+      <span class="touch-only">Drag across the rod to paint heat. Switch the brush to Remove to take it away.</span>
+      <span class="mouse-only">Space plays and pauses, R rewinds.</span>
+    </p>
+  </section>
+
+  <section class="controls">
+    <div class="transport">
+      <button class="btn primary" id="play" aria-label="Play">
+        <svg id="playIcon" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.8v10.4L12 7z" fill="currentColor"/></svg>
+        <span id="playLbl">Play</span>
+      </button>
+      <button class="btn" id="rewind" disabled>
+        <svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2 2v10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 2.2v9.6L4.4 7z" fill="currentColor"/></svg>
+        Rewind
+      </button>
+      <span class="divider" aria-hidden="true"></span>
+      <button class="btn" id="point">Point source</button>
+      <button class="btn" id="clear">Clear rod</button>
+      <span class="spacer"></span>
+      <label class="speed">
+        <span class="lbl">Speed</span>
+        <input type="range" id="sSpeed" min="-1" max="1" step="0.01" value="0" title="Double-click to reset">
+        <output id="oSpeed">1.0×</output>
+      </label>
+    </div>
+
+    <div class="groups">
+      <fieldset>
+        <legend>Brush</legend>
+        <div class="rows">
+          <label class="field">
+            <span class="top"><span>Width</span><output id="oSize">0.50</output></span>
+            <input type="range" id="sSize" min="0.05" max="3" step="0.01" value="0.5" title="Double-click to reset">
+          </label>
+          <label class="field">
+            <span class="top"><span>Strength</span><output id="oStr">2.0</output></span>
+            <input type="range" id="sStr" min="0.2" max="6" step="0.1" value="2" title="Double-click to reset">
+          </label>
+          <div class="field">
+            <span class="top"><span id="modeLbl">Paint</span></span>
+            <div class="seg" id="mode" role="group" aria-labelledby="modeLbl">
+              <button type="button" data-val="add" aria-pressed="true">Add heat</button>
+              <button type="button" data-val="remove" aria-pressed="false">Remove</button>
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>The walk</legend>
+        <div class="rows">
+          <label class="field">
+            <span class="top"><span>Diffusion <i>D</i></span><output id="oD">0.50</output></span>
+            <input type="range" id="sD" min="0" max="2" step="0.01" value="0.5" title="Double-click to reset">
+            <span class="note">δ²/2τ</span>
+          </label>
+          <label class="field">
+            <span class="top"><span>Drift <i>v</i></span><output id="oV">0.00</output></span>
+            <input type="range" id="sV" min="-3" max="3" step="0.05" value="0" data-center="1" title="Double-click to reset">
+            <span class="note">(A − B)δ/τ, positive drifts right</span>
+          </label>
+          <div class="field">
+            <span class="top"><span id="endsLbl">Ends</span></span>
+            <div class="seg" id="ends" role="group" aria-labelledby="endsLbl">
+              <button type="button" data-val="wall" aria-pressed="true">Insulated</button>
+              <button type="button" data-val="loop" aria-pressed="false">Loop</button>
+            </div>
+          </div>
+        </div>
+      </fieldset>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  // ---------- Model ----------
+  const L = 20, X0 = -10, N = 601, dx = L / N, MID = (N - 1) / 2;
+  const xs = new Float64Array(N);
+  for (let i = 0; i < N; i++) xs[i] = X0 + (i + 0.5) * dx;
+
+  const u = new Float64Array(N);      // heat on the rod
+  const u0 = new Float64Array(N);     // initial condition (for rewind and ghost)
+  const flux = new Float64Array(N);
+  const C = new Float64Array(N + 1);  // cumulative heat, for binning
+
+  const S = { D: 0.5, v: 0, speed: 1, size: 0.5, strength: 2, mode: 'add', ends: 'wall' };
+  let t = 0, playing = false, editedPaused = false, u0Version = 0;
+
+  function snapshot() { u0.set(u); t = 0; u0Version++; }
+  function pointSource() { u.fill(0); u[MID] = 1 / dx; snapshot(); }
+
+  // Bernoulli function: exact fitting of drift + diffusion flux between cells (Scharfetter–Gummel).
+  // Stays positive for any ratio of drift to diffusion.
+  function bern(z) {
+    if (Math.abs(z) < 1e-6) return 1 - z / 2;
+    const e = Math.expm1(z);
+    return isFinite(e) ? z / e : 0;
+  }
+  function coeffs() {
+    const { D, v } = S;
+    if (D < 1e-9) return [Math.max(v, 0), Math.max(-v, 0)];
+    const pe = v * dx / D;
+    return [D / dx * bern(-pe), D / dx * bern(pe)];
+  }
+
+  // Each substep is a lazy random walk: every cell keeps at least half its heat,
+  // and passes the rest to its neighbors with right/left weights set by D and v.
+  function advance(T) {
+    const [a, b] = coeffs();
+    const s = a + b;
+    if (s <= 0 || T <= 0) { t += Math.max(T, 0); return; }
+    const dtMax = 0.5 * dx / s;
+    let n = Math.ceil(T / dtMax);
+    if (n > 3000) { n = 3000; T = n * dtMax; }
+    const dt = T / n, ka = a * dt / dx, kb = b * dt / dx;
+    const loop = S.ends === 'loop';
+    for (let k = 0; k < n; k++) {
+      for (let i = 0; i < N - 1; i++) flux[i] = ka * u[i] - kb * u[i + 1];
+      flux[N - 1] = loop ? ka * u[N - 1] - kb * u[0] : 0;
+      u[0] += (loop ? flux[N - 1] : 0) - flux[0];
+      for (let i = 1; i < N; i++) u[i] += flux[i - 1] - flux[i];
+    }
+    t += T;
+  }
+
+  function deposit(xc, amount, sign) {
+    const sig = S.size;
+    const ic = Math.round((xc - X0) / dx - 0.5);
+    const K = Math.min(Math.ceil(4 * sig / dx) + 1, MID);
+    const loop = S.ends === 'loop';
+    const w = [], idx = [];
+    let sum = 0;
+    for (let k = -K; k <= K; k++) {
+      let j = ic + k;
+      if (j < 0 || j >= N) { if (!loop) continue; j = ((j % N) + N) % N; }
+      const d = X0 + (ic + k + 0.5) * dx - xc;
+      const g = Math.exp(-d * d / (2 * sig * sig));
+      w.push(g); idx.push(j); sum += g;
+    }
+    if (sum <= 0) return;
+    const scale = amount / (sum * dx);
+    for (let m = 0; m < w.length; m++) {
+      const j = idx[m];
+      u[j] = sign > 0 ? u[j] + scale * w[m] : Math.max(0, u[j] - scale * w[m]);
+    }
+  }
+
+  // ---------- Canvas & theme ----------
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  let W = 0, H = 0, dpr = 1, G = {}, nb = 100;
+  let dens = new Float64Array(nb), ghost = new Float64Array(nb), ghostKey = '', ghostEmpty = true;
+  let col = {};
+  const SANS = '"Instrument Sans", "Helvetica Neue", Helvetica, Arial, sans-serif';
+  const SERIF = 'Newsreader, "Iowan Old Style", Palatino, Georgia, serif';
+
+  function hex(h) {
+    h = h.replace('#', '');
+    if (h.length === 3) h = h.split('').map(c => c + c).join('');
+    const n = parseInt(h, 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function readTheme() {
+    const cs = getComputedStyle(document.documentElement);
+    const g = n => cs.getPropertyValue(n).trim();
+    col = {
+      ink: g('--ink'), muted: g('--muted'), rule: g('--rule'), faint: g('--faint'), bar: g('--bar'),
+      steel: hex(g('--steel') || '#9aa1ab'),
+      blend: g('--glow-blend') || 'source-over',
+      galpha: parseFloat(g('--glow-alpha')) || 0.5,
+      sheen: parseFloat(g('--sheen')) || 0.3,
+    };
+  }
+  readTheme();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readTheme);
+  new MutationObserver(readTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  function layout() {
+    const w = cv.parentElement.clientWidth;
+    dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    const narrow = w < 560;
+    const padL = narrow ? 36 : 46, padR = narrow ? 10 : 14;
+    const plotTop = 26;
+    const plotH = Math.round(Math.max(170, Math.min(330, w * 0.34)));
+    const gap = 20, rodH = narrow ? 22 : 26, axisH = 32;
+    W = w; H = plotTop + plotH + gap + rodH + axisH;
+    cv.style.height = H + 'px';
+    cv.width = Math.round(W * dpr);
+    cv.height = Math.round(H * dpr);
+    G = { x0: padL, x1: W - padR, plotTop, plotH, plotBot: plotTop + plotH, rodY: plotTop + plotH + gap, rodH };
+    const nNew = Math.max(41, Math.floor((G.x1 - G.x0) / 4)) | 1; // odd, so one bin is centered on x = 0
+    if (nNew !== nb) { nb = nNew; dens = new Float64Array(nb); ghost = new Float64Array(nb); ghostKey = ''; }
+  }
+  new ResizeObserver(layout).observe(cv.parentElement);
+  layout();
+
+  const X = x => G.x0 + (x - X0) / L * (G.x1 - G.x0);
+
+  // Heat colormap: cold steel blending into a blackbody ramp.
+  const LUT = new Uint8ClampedArray(256 * 3);
+  (() => {
+    const stops = [
+      [0, [44, 7, 5]], [0.18, [108, 17, 8]], [0.38, [180, 38, 12]], [0.58, [228, 90, 24]],
+      [0.76, [247, 160, 56]], [0.9, [255, 217, 122]], [1, [255, 248, 232]]
+    ];
+    for (let k = 0; k < 256; k++) {
+      const h = k / 255;
+      let s = 0;
+      while (s < stops.length - 2 && h > stops[s + 1][0]) s++;
+      const [h0, c0] = stops[s], [h1, c1] = stops[s + 1];
+      const f = Math.min(1, Math.max(0, (h - h0) / (h1 - h0)));
+      for (let c = 0; c < 3; c++) LUT[k * 3 + c] = c0[c] + (c1[c] - c0[c]) * f;
+    }
+  })();
+  const U0 = 0.35;
+  const heat = v => 1 - Math.exp(-v / U0);
+
+  const rc = document.createElement('canvas'); rc.width = N; rc.height = 1;
+  const rctx = rc.getContext('2d'); const rimg = rctx.createImageData(N, 1);
+  const NG = 160, HH = 24;
+  const gc = document.createElement('canvas'); gc.width = NG; gc.height = 1;
+  const gctx = gc.getContext('2d'); const gimg = gctx.createImageData(NG, 1);
+  const hc = document.createElement('canvas'); hc.width = NG; hc.height = HH;
+  const hctx = hc.getContext('2d');
+  const vmask = hctx.createLinearGradient(0, 0, 0, HH);
+  vmask.addColorStop(0, 'rgba(0,0,0,0)'); vmask.addColorStop(0.32, 'rgba(0,0,0,0.35)');
+  vmask.addColorStop(0.5, 'rgba(0,0,0,1)'); vmask.addColorStop(0.68, 'rgba(0,0,0,0.35)');
+  vmask.addColorStop(1, 'rgba(0,0,0,0)');
+
+  function paintRod() {
+    const s = col.steel, d = rimg.data;
+    for (let i = 0; i < N; i++) {
+      const h = heat(u[i]);
+      const li = (h * 255) | 0;
+      const e = Math.min(1, h / 0.22), m = e * e * (3 - 2 * e);
+      d[i * 4]     = s[0] + (LUT[li * 3]     - s[0]) * m;
+      d[i * 4 + 1] = s[1] + (LUT[li * 3 + 1] - s[1]) * m;
+      d[i * 4 + 2] = s[2] + (LUT[li * 3 + 2] - s[2]) * m;
+      d[i * 4 + 3] = 255;
+    }
+    rctx.putImageData(rimg, 0, 0);
+
+    const g = gimg.data;
+    for (let c = 0; c < NG; c++) {
+      const i0 = Math.floor(c * N / NG), i1 = Math.max(i0 + 1, Math.floor((c + 1) * N / NG));
+      let acc = 0;
+      for (let i = i0; i < i1; i++) acc += u[i];
+      const h = heat(acc / (i1 - i0));
+      const li = (h * 255) | 0;
+      g[c * 4] = LUT[li * 3]; g[c * 4 + 1] = LUT[li * 3 + 1]; g[c * 4 + 2] = LUT[li * 3 + 2];
+      g[c * 4 + 3] = Math.pow(h, 1.6) * 255;
+    }
+    gctx.putImageData(gimg, 0, 0);
+    hctx.globalCompositeOperation = 'copy';
+    hctx.imageSmoothingEnabled = true;
+    hctx.drawImage(gc, 0, 0, NG, 1, 0, 0, NG, HH);
+    hctx.globalCompositeOperation = 'destination-in';
+    hctx.fillStyle = vmask;
+    hctx.fillRect(0, 0, NG, HH);
+  }
+
+  // ---------- Binning & stats ----------
+  function cum(x) {
+    const p = (x - X0) / dx;
+    if (p <= 0) return 0;
+    if (p >= N) return C[N];
+    const i = Math.floor(p);
+    return C[i] + (p - i) * (C[i + 1] - C[i]);
+  }
+  function binInto(arr, out) {
+    C[0] = 0;
+    for (let i = 0; i < N; i++) C[i + 1] = C[i] + arr[i] * dx;
+    const q = C[N];
+    if (q < 1e-9) { out.fill(0); return 0; }
+    const bw = L / nb;
+    let prev = 0, mx = 0;
+    for (let j = 0; j < nb; j++) {
+      const c = cum(X0 + (j + 1) * bw);
+      out[j] = (c - prev) / (q * bw);
+      if (out[j] > mx) mx = out[j];
+      prev = c;
+    }
+    return mx;
+  }
+  function moments() {
+    let q = 0, m = 0, m2 = 0;
+    for (let i = 0; i < N; i++) { const w = u[i]; q += w; m += w * xs[i]; m2 += w * xs[i] * xs[i]; }
+    if (q * dx < 1e-9) return null;
+    m /= q; m2 /= q;
+    return { mean: m, sigma: Math.sqrt(Math.max(0, m2 - m * m)) };
+  }
+
+  // ---------- Drawing ----------
+  function rr(c, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.arcTo(x + w, y, x + w, y + h, r);
+    c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r);
+    c.arcTo(x, y, x + w, y, r);
+    c.closePath();
+  }
+  function niceStep(raw) {
+    const p = Math.pow(10, Math.floor(Math.log10(raw)));
+    const f = raw / p;
+    return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p;
+  }
+  const fmtNum = (v, d) => (v < 0 ? '−' : '') + Math.abs(v).toFixed(d);
+
+  let yMax = 1, yReady = false, empty = false, shiftHeld = false;
+
+  function draw() {
+    const { x0, x1, plotTop, plotBot, plotH, rodY, rodH } = G;
+    const pw = x1 - x0;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    paintRod();
+
+    // Glow around the rod
+    const halo = 26;
+    ctx.save();
+    ctx.globalCompositeOperation = col.blend;
+    ctx.globalAlpha = col.galpha;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(hc, x0 - 8, rodY + rodH / 2 - halo - rodH / 2, pw + 16, rodH + 2 * halo);
+    ctx.restore();
+
+    // Gridlines and labels
+    const step = niceStep(yMax / 3.2);
+    const dec = Math.max(0, Math.min(3, -Math.floor(Math.log10(step) + 1e-9)));
+    ctx.lineWidth = 1;
+    ctx.font = `500 11px ${SANS}`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let v = step; v < yMax * 0.985; v += step) {
+      const y = Math.round(plotBot - v / yMax * plotH) + 0.5;
+      ctx.strokeStyle = col.rule;
+      ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+      ctx.fillStyle = col.muted;
+      ctx.fillText(v.toFixed(dec), x0 - 9, y);
+    }
+    ctx.font = `italic 400 15px ${SERIF}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = col.muted;
+    ctx.fillText('ρ(x, t)', x0, plotTop - 10);
+
+    // Histogram
+    const bw = pw / nb;
+    if (!empty) {
+      ctx.fillStyle = col.bar;
+      ctx.globalAlpha = 0.9;
+      const gapPx = bw >= 3 ? 1 : 0;
+      for (let j = 0; j < nb; j++) {
+        const h = Math.min(plotH, dens[j] / yMax * plotH);
+        if (h < 0.25) continue;
+        const bx = x0 + j * bw;
+        ctx.fillRect(bx + gapPx / 2, plotBot - h, bw - gapPx, h);
+      }
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.font = `italic 400 18px ${SERIF}`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = col.muted;
+      ctx.fillText('The rod is cold. Drag along it to add heat.', x0 + pw / 2, plotTop + plotH * 0.55);
+    }
+
+    // Ghost of the initial condition
+    if (t > 0 && !ghostEmpty) {
+      ctx.save();
+      ctx.beginPath(); ctx.rect(x0 - 2, plotTop - 6, pw + 4, plotH + 6); ctx.clip();
+      ctx.strokeStyle = col.muted;
+      ctx.globalAlpha = 0.85;
+      ctx.lineWidth = 1.25;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(x0, plotBot);
+      for (let j = 0; j < nb; j++) {
+        const y = plotBot - Math.min(plotH + 40, ghost[j] / yMax * plotH);
+        ctx.lineTo(x0 + j * bw, y);
+        ctx.lineTo(x0 + (j + 1) * bw, y);
+      }
+      ctx.lineTo(x1, plotBot);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Baseline
+    ctx.strokeStyle = col.faint;
+    ctx.beginPath(); ctx.moveTo(x0, plotBot + 0.5); ctx.lineTo(x1, plotBot + 0.5); ctx.stroke();
+
+    // Rod
+    ctx.save();
+    rr(ctx, x0, rodY, pw, rodH, S.ends === 'loop' ? rodH / 2 : 4);
+    ctx.clip();
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(rc, 0, 0, N, 1, x0, rodY, pw, rodH);
+    const sh = ctx.createLinearGradient(0, rodY, 0, rodY + rodH);
+    sh.addColorStop(0, `rgba(255,255,255,${col.sheen})`);
+    sh.addColorStop(0.3, 'rgba(255,255,255,0.03)');
+    sh.addColorStop(0.55, 'rgba(0,0,0,0)');
+    sh.addColorStop(1, 'rgba(0,0,0,0.34)');
+    ctx.fillStyle = sh;
+    ctx.fillRect(x0, rodY, pw, rodH);
+    ctx.restore();
+
+    // Insulating end caps
+    if (S.ends === 'wall') {
+      ctx.fillStyle = col.ink;
+      rr(ctx, x0 - 7, rodY - 6, 4, rodH + 12, 2); ctx.fill();
+      rr(ctx, x1 + 3, rodY - 6, 4, rodH + 12, 2); ctx.fill();
+    }
+
+    // Axis
+    const ya = rodY + rodH + 9;
+    ctx.strokeStyle = col.muted;
+    ctx.fillStyle = col.muted;
+    ctx.font = `500 11px ${SANS}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let k = -10; k <= 10; k++) {
+      const px = Math.round(X(k)) + 0.5;
+      const major = k % 5 === 0;
+      ctx.globalAlpha = major ? 0.9 : 0.5;
+      ctx.beginPath(); ctx.moveTo(px, ya); ctx.lineTo(px, ya + (major ? 6 : 3)); ctx.stroke();
+      if (major) ctx.fillText(fmtNum(k, 0), px, ya + 9);
+    }
+    ctx.globalAlpha = 1;
+
+    // Brush preview
+    if (pointer.inside || pointer.down) {
+      const remove = pointer.down ? pointer.sign < 0 : ((S.mode === 'remove') !== shiftHeld);
+      const xc = pointer.x, px = X(xc), sig = S.size, amp = plotH * 0.2;
+      ctx.save();
+      ctx.strokeStyle = col.ink;
+      ctx.globalAlpha = 0.28;
+      ctx.beginPath(); ctx.moveTo(Math.round(px) + 0.5, plotTop); ctx.lineTo(Math.round(px) + 0.5, rodY + rodH); ctx.stroke();
+      ctx.beginPath();
+      const lo = Math.max(X0, xc - 3.5 * sig), hi = Math.min(X0 + L, xc + 3.5 * sig);
+      for (let k = 0; k <= 80; k++) {
+        const x = lo + (hi - lo) * k / 80;
+        const y = plotBot - amp * Math.exp(-(x - xc) * (x - xc) / (2 * sig * sig));
+        k ? ctx.lineTo(X(x), y) : ctx.moveTo(X(x), y);
+      }
+      ctx.globalAlpha = 0.07;
+      ctx.lineTo(X(hi), plotBot); ctx.lineTo(X(lo), plotBot);
+      ctx.fillStyle = col.ink; ctx.fill();
+      ctx.globalAlpha = 0.6;
+      ctx.lineWidth = 1.25;
+      ctx.setLineDash(remove ? [3, 3] : []);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // ---------- Pointer ----------
+  const pointer = { inside: false, down: false, x: 0, lastX: 0, pending: [], sign: 1 };
+  function toData(clientX) {
+    const r = cv.getBoundingClientRect();
+    const x = X0 + (clientX - r.left - G.x0) / (G.x1 - G.x0) * L;
+    return Math.min(X0 + L, Math.max(X0, x));
+  }
+  function addPath(x) {
+    const xa = pointer.lastX;
+    const n = Math.max(1, Math.ceil(Math.abs(x - xa) / Math.max(S.size / 3, dx)));
+    for (let k = 1; k <= n; k++) pointer.pending.push(xa + (x - xa) * k / n);
+    pointer.lastX = x;
+  }
+  cv.addEventListener('pointerdown', e => {
+    if (e.button !== 0 && e.button !== 2) return;
+    e.preventDefault();
+    cv.setPointerCapture(e.pointerId);
+    const x = toData(e.clientX);
+    Object.assign(pointer, { down: true, inside: true, x, lastX: x, pending: [x] });
+    const flip = e.button === 2 || e.shiftKey;
+    pointer.sign = ((S.mode === 'remove') !== flip) ? -1 : 1;
+  });
+  cv.addEventListener('pointermove', e => {
+    const x = toData(e.clientX);
+    pointer.x = x;
+    pointer.inside = true;
+    if (pointer.down) addPath(x);
+  });
+  const endStroke = e => {
+    if (!pointer.down) return;
+    pointer.down = false;
+    if (editedPaused && !playing) snapshot();
+    editedPaused = false;
+    if (e.pointerType !== 'mouse') pointer.inside = false;
+  };
+  cv.addEventListener('pointerup', endStroke);
+  cv.addEventListener('pointercancel', endStroke);
+  cv.addEventListener('pointerleave', () => { if (!pointer.down) pointer.inside = false; });
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+
+  function applyBrush(fdt) {
+    const pts = pointer.pending.length ? pointer.pending : [pointer.lastX];
+    const amt = S.strength * fdt * (pointer.sign < 0 ? 1.5 : 1) / pts.length;
+    for (const p of pts) deposit(p, amt, pointer.sign);
+    pointer.pending = [];
+    if (!playing) { t = 0; editedPaused = true; }
+  }
+
+  // ---------- Controls ----------
+  const $ = id => document.getElementById(id);
+  const playBtn = $('play'), playLbl = $('playLbl'), playIcon = $('playIcon'), rewindBtn = $('rewind');
+
+  function setPlaying(p) {
+    if (p && t === 0) snapshot();
+    playing = p;
+    playLbl.textContent = p ? 'Pause' : 'Play';
+    playBtn.setAttribute('aria-label', p ? 'Pause' : 'Play');
+    playIcon.innerHTML = p
+      ? '<rect x="2.5" y="2" width="3.2" height="10" rx="0.8" fill="currentColor"/><rect x="8.3" y="2" width="3.2" height="10" rx="0.8" fill="currentColor"/>'
+      : '<path d="M3 1.8v10.4L12 7z" fill="currentColor"/>';
+  }
+  function rewind() { u.set(u0); t = 0; }
+
+  playBtn.addEventListener('click', () => setPlaying(!playing));
+  rewindBtn.addEventListener('click', rewind);
+  $('point').addEventListener('click', pointSource);
+  $('clear').addEventListener('click', () => { u.fill(0); snapshot(); });
+
+  function fill(el) {
+    const min = +el.min, max = +el.max, p = (el.value - min) / (max - min) * 100;
+    if (el.dataset.center) {
+      el.style.setProperty('--a', Math.min(50, p) + '%');
+      el.style.setProperty('--b', Math.max(50, p) + '%');
+    } else {
+      el.style.setProperty('--a', '0%');
+      el.style.setProperty('--b', p + '%');
+    }
+  }
+  function bind(id, outId, apply, fmt) {
+    const el = $(id), out = $(outId);
+    const update = () => { const v = apply(+el.value); out.textContent = fmt(v); fill(el); };
+    el.addEventListener('input', update);
+    el.addEventListener('dblclick', () => { el.value = el.defaultValue; update(); });
+    update();
+  }
+  bind('sSize', 'oSize', v => (S.size = v), v => v.toFixed(2));
+  bind('sStr', 'oStr', v => (S.strength = v), v => v.toFixed(1));
+  bind('sD', 'oD', v => (S.D = v), v => v.toFixed(2));
+  bind('sV', 'oV', v => (S.v = Math.abs(v) < 1e-9 ? 0 : v), v => (v > 0 ? '+' : '') + fmtNum(v, 2));
+  bind('sSpeed', 'oSpeed', v => (S.speed = Math.pow(10, v)), v => (v < 1 ? v.toFixed(2) : v.toFixed(1)) + '×');
+
+  function bindSeg(id, key) {
+    const root = $(id);
+    root.addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      S[key] = b.dataset.val;
+      root.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+    });
+  }
+  bindSeg('mode', 'mode');
+  bindSeg('ends', 'ends');
+
+  addEventListener('keydown', e => {
+    if (e.key === 'Shift') shiftHeld = true;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === ' ' && e.target.tagName !== 'BUTTON') { e.preventDefault(); setPlaying(!playing); }
+    else if ((e.key === 'r' || e.key === 'R') && !e.repeat) rewind();
+  });
+  addEventListener('keyup', e => { if (e.key === 'Shift') shiftHeld = false; });
+  addEventListener('blur', () => { shiftHeld = false; });
+
+  // ---------- Loop ----------
+  const rT = $('rT'), rMean = $('rMean'), rSig = $('rSig');
+  let lastTxt = ['', '', ''], lastRewind = null;
+  function setText(el, i, s) { if (lastTxt[i] !== s) { el.textContent = s; lastTxt[i] = s; } }
+
+  let last = performance.now();
+  function frame(now) {
+    const fdt = Math.min(0.05, Math.max(0, (now - last) / 1000));
+    last = now;
+
+    if (pointer.down) applyBrush(fdt);
+    if (playing) advance(S.speed * fdt);
+
+    const mx = binInto(u, dens);
+    empty = mx === 0;
+    const key = u0Version + ':' + nb;
+    if (ghostKey !== key) { ghostEmpty = binInto(u0, ghost) === 0; ghostKey = key; }
+
+    if (!empty) {
+      const target = mx * 1.12;
+      if (!yReady) { yMax = target; yReady = true; }
+      else {
+        const k = 1 - Math.exp(-fdt * (target > yMax ? 16 : 5));
+        yMax += (target - yMax) * k;
+      }
+    }
+
+    draw();
+
+    const mo = moments();
+    setText(rT, 0, t.toFixed(2));
+    setText(rMean, 1, mo ? fmtNum(Math.abs(mo.mean) < 0.005 ? 0 : mo.mean, 2) : '—');
+    setText(rSig, 2, mo ? mo.sigma.toFixed(2) : '—');
+    const canRewind = t > 0;
+    if (canRewind !== lastRewind) { rewindBtn.disabled = !canRewind; lastRewind = canRewind; }
+
+    requestAnimationFrame(frame);
+  }
+
+  pointSource();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
