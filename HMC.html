@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hamiltonian Monte Carlo on a 2-D Gaussian</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script>
+window.MathJax = {
+  tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']], processEscapes: true },
+  svg: { fontCache: 'global' },
+  options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'canvas'] }
+};
+</script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #eff1ee;
+  --surface: #fbfbf9;
+  --surface-2: #e8ebe6;
+  --text: #1b2430;
+  --muted: #5f6b78;
+  --line: #cfd5d0;
+  --grid: #e1e5e0;
+  --c-p: #0b8a79;
+  --c-force: #b8761a;
+  --c-radial: #7f8893;
+  --c-traj: #3a3f9c;
+  --c-traj-rgb: 58, 63, 156;
+  --c-shell: #8d3f93;
+  --c-tangent: #0b8a79;
+  --c-ok: #2f8b5b;
+  --c-bad: #c03d3d;
+  --c-true: #1b2430;
+  --density-rgb: 72, 96, 190;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #121418;
+    --surface: #1a1d23;
+    --surface-2: #232730;
+    --text: #e9e9e4;
+    --muted: #9aa3ad;
+    --line: #333942;
+    --grid: #272c34;
+    --c-p: #3fd0ba;
+    --c-force: #f0a64a;
+    --c-radial: #8f98a3;
+    --c-traj: #a6aaff;
+    --c-traj-rgb: 166, 170, 255;
+    --c-shell: #dc8fdf;
+    --c-tangent: #3fd0ba;
+    --c-ok: #5fcf8b;
+    --c-bad: #ff6b6b;
+    --c-true: #e9e9e4;
+    --density-rgb: 120, 150, 255;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121418;
+  --surface: #1a1d23;
+  --surface-2: #232730;
+  --text: #e9e9e4;
+  --muted: #9aa3ad;
+  --line: #333942;
+  --grid: #272c34;
+  --c-p: #3fd0ba;
+  --c-force: #f0a64a;
+  --c-radial: #8f98a3;
+  --c-traj: #a6aaff;
+  --c-traj-rgb: 166, 170, 255;
+  --c-shell: #dc8fdf;
+  --c-tangent: #3fd0ba;
+  --c-ok: #5fcf8b;
+  --c-bad: #ff6b6b;
+  --c-true: #e9e9e4;
+  --density-rgb: 120, 150, 255;
+}
+* { box-sizing: border-box; }
+html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+  font-feature-settings: "tnum" 1;
+}
+.wrap { max-width: 1200px; margin: 0 auto; padding: 26px 18px 72px; }
+header { margin-bottom: 18px; max-width: 72ch; }
+header h1 {
+  font-family: Fraunces, Georgia, "Times New Roman", serif; font-weight: 500;
+  font-size: clamp(28px, 4vw, 40px); line-height: 1.15; margin: 0 0 10px; letter-spacing: -0.015em;
+}
+header p { margin: 0; color: var(--muted); }
+header p + p { margin-top: 8px; }
+
+/* controls */
+.controls { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 0; margin-bottom: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.controls > div { padding: 14px 16px; }
+.controls > div + div { border-left: 1px solid var(--line); }
+@media (max-width: 880px) {
+  .controls { grid-template-columns: 1fr; }
+  .controls > div + div { border-left: 0; border-top: 1px solid var(--line); }
+}
+.controls h3, .side h3, .tally h3 { font-family: Fraunces, Georgia, serif; font-weight: 500; font-size: 16px; margin: 0 0 8px; letter-spacing: -0.005em; }
+.slider { display: grid; grid-template-columns: 86px 1fr 60px; align-items: center; gap: 10px; font-size: 13px; margin: 3px 0; }
+.slider label { color: var(--text); }
+.slider output { font-size: 12.5px; text-align: right; color: var(--muted); }
+input[type=range] { width: 100%; accent-color: var(--c-traj); margin: 0; }
+input[type=range]:focus-visible, button:focus-visible, input[type=checkbox]:focus-visible { outline: 2px solid var(--c-p); outline-offset: 2px; }
+.note { font-size: 12.5px; color: var(--muted); margin: 8px 0 0; line-height: 1.45; }
+.note.warn { color: var(--c-bad); }
+.toggles { display: flex; flex-direction: column; gap: 6px; font-size: 13px; margin-top: 8px; }
+.toggles label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.toggles input { accent-color: var(--c-traj); margin: 0; }
+.kbd { font-size: 12px; color: var(--muted); margin-top: 10px; }
+.kbd kbd { font: inherit; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; background: var(--surface-2); }
+
+/* stage */
+.stage { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(290px, 1fr); gap: 16px; margin-bottom: 16px; align-items: start; }
+@media (max-width: 920px) { .stage { grid-template-columns: 1fr; } }
+.plot { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px 16px; }
+.plot-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.plot-head h2 { font-family: Fraunces, Georgia, serif; font-weight: 500; font-size: 19px; margin: 0; }
+.badge { font-size: 12.5px; padding: 3px 10px; border-radius: 999px; background: var(--surface-2); color: var(--text); }
+canvas { display: block; width: 100%; }
+#main { aspect-ratio: 1 / 1; border-radius: 6px; }
+.phase canvas { aspect-ratio: 1.55 / 1; }
+.tally canvas { aspect-ratio: 1.9 / 1; }
+#spark { height: 70px; }
+.playbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+button { font: inherit; font-size: 13.5px; padding: 7px 13px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text); cursor: pointer; }
+button.primary { background: var(--c-traj); color: #fff; border-color: transparent; min-width: 150px; }
+button:hover { filter: brightness(1.06); }
+.speed { display: flex; align-items: center; gap: 8px; flex: 1 1 240px; font-size: 12.5px; color: var(--muted); }
+.speed input { flex: 1; }
+.speed output { min-width: 11ch; text-align: right; }
+#status { font-size: 13.5px; margin: 12px 0 0; min-height: 4.2em; line-height: 1.5; }
+.legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 3px 16px; font-size: 12.5px; color: var(--muted); margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--grid); }
+.legend .sw { display: inline-block; width: 24px; height: 0; border-top: 2.5px solid; vertical-align: middle; margin-right: 7px; }
+.legend .sw.dashed { border-top-style: dashed; }
+.legend .sw.thin { border-top-width: 1.2px; }
+.legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: middle; margin: 0 14px 0 8px; }
+.legend .dot.small { width: 5px; height: 5px; margin: 0 16px 0 10px; }
+
+/* side column */
+.side { display: flex; flex-direction: column; gap: 16px; }
+.side > div { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+.readout table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.readout td { padding: 3px 0; border-bottom: 1px solid var(--grid); vertical-align: top; }
+.readout tr:last-child td { border-bottom: 0; }
+.readout td:last-child { text-align: right; white-space: nowrap; padding-left: 10px; }
+.readout .note { margin-top: 4px; }
+
+/* tally */
+.tally { display: grid; grid-template-columns: 1fr 1fr minmax(240px, 0.75fr); gap: 16px; margin-bottom: 26px; }
+@media (max-width: 920px) { .tally { grid-template-columns: 1fr; } }
+.tally > div { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+.stats table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.stats th { text-align: right; font-weight: 500; color: var(--muted); padding: 2px 0 6px; }
+.stats th:first-child { text-align: left; }
+.stats td { padding: 3px 0; border-top: 1px solid var(--grid); text-align: right; }
+.stats td:first-child { text-align: left; }
+
+/* math */
+details.math { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 4px 20px; }
+details.math summary { cursor: pointer; font-family: Fraunces, Georgia, serif; font-weight: 500; font-size: 19px; padding: 12px 0; list-style: none; display: flex; gap: 12px; align-items: baseline; }
+details.math summary::-webkit-details-marker { display: none; }
+details.math summary::before { content: "+"; font-family: Inter, sans-serif; font-weight: 500; color: var(--muted); width: 1em; display: inline-block; }
+details.math[open] summary::before { content: "–"; }
+details.math .body { max-width: 74ch; padding: 4px 0 22px; font-size: 15.5px; line-height: 1.62; }
+.math h4 { font-family: Fraunces, Georgia, serif; font-weight: 500; font-size: 19px; margin: 30px 0 8px; }
+.math p { margin: 0 0 12px; }
+.math mjx-container[display="true"] { overflow-x: auto; overflow-y: hidden; max-width: 100%; margin: 10px 0 14px; }
+.math .aside { border-left: 3px solid var(--c-shell); padding: 2px 0 2px 14px; margin: 14px 0; color: var(--text); }
+.math .try { color: var(--muted); font-size: 14.5px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Hamiltonian Monte Carlo, one leapfrog step at a time</h1>
+  <p>Sampling a two-dimensional Gaussian posterior by inventing a momentum $p$, letting $(q, p)$ flow along a shell of constant energy $H = U + K$, and keeping the endpoint. Every iteration is the same three moves: draw $p$, integrate with leapfrog, accept or reject.</p>
+  <p>The plot is position space. Teal is $p$ (which is $\dot q$ here), amber is $\dot p = -\nabla U$, grey dashed is the radial vector from the mode. Watch how tangent the fresh $p$ is to the shell, then watch the orbit it produces.</p>
+</header>
+
+<section class="controls">
+  <div>
+    <h3>Target posterior $\pi(q) = \mathcal N(\mu, \Sigma)$</h3>
+    <div id="targetSliders"></div>
+    <p class="note">Thin grey ellipses are $r = 1, 2, 3$ with $r^2 = (q-\mu)^\top \Sigma^{-1} (q-\mu)$; the light indigo ones enclose 50%, 90% and 99% of the posterior mass. Changing the target clears the tally.</p>
+  </div>
+  <div>
+    <h3>Leapfrog integrator</h3>
+    <div id="integratorSliders"></div>
+    <p class="note" id="epsNote"></p>
+    <p class="note" id="lenNote"></p>
+  </div>
+  <div>
+    <h3>View</h3>
+    <div id="viewSliders"></div>
+    <div class="toggles">
+      <label><input type="checkbox" id="chkSub"> show the kick, drift, kick inside each leapfrog step</label>
+      <label><input type="checkbox" id="chkSamples" checked> show recorded samples on the plot</label>
+      <label><input type="checkbox" id="chkMass" checked> show the regions holding 50%, 90%, 99% of the posterior mass</label>
+    </div>
+    <p class="kbd"><kbd>Space</kbd> play or pause, <kbd>→</kbd> one step</p>
+  </div>
+</section>
+
+<section class="stage">
+  <div class="plot">
+    <div class="plot-head">
+      <h2>Position space, $q = (q_1, q_2)$</h2>
+      <span class="badge" id="badge"></span>
+    </div>
+    <canvas id="main"></canvas>
+    <div class="playbar">
+      <button id="btnStep" class="primary">Step</button>
+      <button id="btnPlay">▶ Play</button>
+      <button id="btnIter">Finish this iteration</button>
+      <button id="btnReset">Reset</button>
+      <div class="speed"><span>crawl</span><input type="range" id="speed" min="0" max="100" value="28"><span>sprint</span><output id="speedOut"></output></div>
+    </div>
+    <p id="status"></p>
+    <div class="legend">
+      <div><span class="dot" style="background:var(--c-traj)"></span>$q$, the current position; ring is the start of this trajectory</div>
+      <div><span class="sw" style="border-color:var(--c-p)"></span>$p = \dot q$ (momentum equals velocity since $M = I$)</div>
+      <div><span class="sw" style="border-color:var(--c-force)"></span>$\dot p = -\nabla U(q)$, the force, normal to the contour</div>
+      <div><span class="sw dashed" style="border-color:var(--c-radial)"></span>$q - \mu$, the radial vector from the mode</div>
+      <div><span class="sw thin" style="border-color:var(--c-tangent);opacity:.55"></span>tangent to the contour through $q$</div>
+      <div><span class="sw dashed" style="border-color:var(--c-shell)"></span>shell $U(q) = H_0$; $q$ cannot cross it until $p$ is redrawn</div>
+      <div><span class="sw thin" style="border-color:var(--muted);opacity:.7"></span>contours $r = 1, 2, 3$ (level sets of $\pi$ at 61%, 14%, 1.1% of its peak)</div>
+      <div><span class="sw thin" style="border-color:var(--c-traj);opacity:.5"></span>regions holding 50%, 90%, 99% of the posterior mass: the goal the tally should reproduce</div>
+      <div><span class="dot small" style="background:rgba(var(--c-traj-rgb),.55)"></span>recorded samples, one per iteration</div>
+      <div style="grid-column:1/-1">Both arrows use the same scale factor (View card), so their relative lengths are honest.</div>
+    </div>
+  </div>
+
+  <aside class="side">
+    <div class="readout">
+      <h3>Energy bookkeeping</h3>
+      <table>
+        <tr><td>iteration</td><td id="r-it"></td></tr>
+        <tr><td>leapfrog step</td><td id="r-step"></td></tr>
+        <tr><td>$U(q)$</td><td id="r-U"></td></tr>
+        <tr><td>$K(p) = \tfrac12 |p|^2$</td><td id="r-K"></td></tr>
+        <tr><td>$H = U + K$</td><td id="r-H"></td></tr>
+        <tr><td>$H_0$, fixed when $p$ was drawn</td><td id="r-H0"></td></tr>
+        <tr><td>$\Delta H = H - H_0$</td><td id="r-dH"></td></tr>
+        <tr><td>$|p|$</td><td id="r-pn"></td></tr>
+        <tr><td>$|q - \mu|$</td><td id="r-rn"></td></tr>
+        <tr><td>$\cos\theta$, $\theta$ between $p$ and $q-\mu$</td><td id="r-cos"></td></tr>
+        <tr><td>last $\alpha = \min(1, e^{-\Delta H})$</td><td id="r-alpha"></td></tr>
+        <tr><td>accepted</td><td id="r-acc"></td></tr>
+      </table>
+      <canvas id="spark"></canvas>
+      <p class="note">$H - H_0$ along the current trajectory: the integrator’s energy error, which is what accept/reject corrects.</p>
+    </div>
+    <div class="phase">
+      <h3>Phase plane $(q_1, p_1)$</h3>
+      <canvas id="ph1"></canvas>
+    </div>
+    <div class="phase">
+      <h3>Phase plane $(q_2, p_2)$</h3>
+      <canvas id="ph2"></canvas>
+      <p class="note">The dotted vertical jump is the momentum redraw: $q$ stays, $p$ changes. The orbit between jumps is the leapfrog trajectory on one energy shell.</p>
+    </div>
+  </aside>
+</section>
+
+<section class="tally">
+  <div>
+    <h3>Tally of $q_1$ against the exact marginal $\mathcal N(\mu_1, \sigma_1^2)$</h3>
+    <canvas id="h1"></canvas>
+  </div>
+  <div>
+    <h3>Tally of $q_2$ against the exact marginal $\mathcal N(\mu_2, \sigma_2^2)$</h3>
+    <canvas id="h2"></canvas>
+  </div>
+  <div class="stats">
+    <h3>Sample moments</h3>
+    <table>
+      <tr><th>quantity</th><th>samples</th><th>true</th></tr>
+      <tr><td>$n$</td><td id="s-n"></td><td></td></tr>
+      <tr><td>acceptance</td><td id="s-acc"></td><td></td></tr>
+      <tr><td>mean $q_1$</td><td id="s-m1"></td><td id="t-m1"></td></tr>
+      <tr><td>mean $q_2$</td><td id="s-m2"></td><td id="t-m2"></td></tr>
+      <tr><td>std $q_1$</td><td id="s-sd1"></td><td id="t-sd1"></td></tr>
+      <tr><td>std $q_2$</td><td id="s-sd2"></td><td id="t-sd2"></td></tr>
+      <tr><td>corr</td><td id="s-rho"></td><td id="t-rho"></td></tr>
+      <tr><td>inside the 50% region</td><td id="s-in50"></td><td>50%</td></tr>
+      <tr><td>inside the 90% region</td><td id="s-in90"></td><td>90%</td></tr>
+    </table>
+    <p class="note">Rejections record the current $q$ again, so $n$ counts every iteration.</p>
+  </div>
+</section>
+
+<details class="math" id="math">
+<summary>The math, built forward: from “I want samples of $\pi(q)$” to leapfrog and accept/reject</summary>
+<div class="body">
+
+<h4>0. The objects on the table</h4>
+<p>The position $q = (q_1, q_2)$ is what we want samples of. The momentum $p = (p_1, p_2)$ is an auxiliary variable we will invent in step 2. The target is a Gaussian with mean $\mu = (\mu_1, \mu_2)$ and covariance</p>
+$$\Sigma = \begin{pmatrix} \sigma_1^2 &amp; \rho\,\sigma_1\sigma_2 \\[3pt] \rho\,\sigma_1\sigma_2 &amp; \sigma_2^2 \end{pmatrix},
+\qquad
+\Sigma^{-1} = \frac{1}{1-\rho^2}\begin{pmatrix} \dfrac{1}{\sigma_1^2} &amp; -\dfrac{\rho}{\sigma_1\sigma_2} \\[10pt] -\dfrac{\rho}{\sigma_1\sigma_2} &amp; \dfrac{1}{\sigma_2^2} \end{pmatrix}.$$
+<p>Those five numbers, $\mu_1, \mu_2, \sigma_1, \sigma_2, \rho$, are the sliders in the first control card.</p>
+
+<h4>1. The goal, and the potential $U$</h4>
+<p>We want samples from $\pi(q) = \mathcal N(q;\, \mu, \Sigma) \propto \exp\!\big(-\tfrac12 (q-\mu)^\top \Sigma^{-1} (q-\mu)\big)$. Name the thing in the exponent the potential energy, $U(q) = -\log \pi(q) + \text{const}$:</p>
+$$U(q) = \tfrac12 (q-\mu)^\top \Sigma^{-1} (q-\mu)
+= \frac{1}{2(1-\rho^2)}\left[ \frac{(q_1-\mu_1)^2}{\sigma_1^2} \;-\; \frac{2\rho\,(q_1-\mu_1)(q_2-\mu_2)}{\sigma_1\sigma_2} \;+\; \frac{(q_2-\mu_2)^2}{\sigma_2^2} \right].$$
+<p>So $\pi(q) \propto e^{-U(q)}$: high probability is low potential, and the mode $\mu$ is the bottom of a bowl. The thin ellipses on the plot are level sets of $U$, $(q-\mu)^\top\Sigma^{-1}(q-\mu) = r^2$ for $r = 1, 2, 3$. The gradient is</p>
+$$\nabla U(q) = \Sigma^{-1}(q-\mu),$$
+<p>a vector perpendicular to the contour through $q$, pointing uphill in $U$ (away from $\mu$). The amber arrow on the plot is $-\nabla U(q)$: downhill, toward the mode. Note that with correlation the amber arrow is not parallel to the grey radial arrow; it is normal to the ellipse, which is a different direction unless $\Sigma$ is a multiple of the identity.</p>
+<p>Why not just random-walk Metropolis? A random walk with step size $\delta$ has, after $n$ steps, travelled about $\delta\sqrt n$ (independent increments: the variances add, so the standard deviation grows like $\sqrt n$). To cross a posterior of width $w$ it needs $n \sim (w/\delta)^2$ steps, and $\delta$ cannot be large or nearly every step lands somewhere improbable and is rejected. We want a proposal that travels a long, deliberate path and still arrives somewhere probable.</p>
+
+<h4>2. Invent a momentum: $H = U + K$</h4>
+<p>Introduce $p \in \mathbb R^2$, the same dimension as $q$, with kinetic energy</p>
+$$K(p) = \tfrac12\, p^\top p = \tfrac12\,(p_1^2 + p_2^2)$$
+<p>(this is the choice of a unit mass matrix, $M = I$; one can use other $M$ but we will not here). Define a joint density over $(q, p)$ by</p>
+$$\pi(q, p) \propto e^{-H(q,p)}, \qquad H(q,p) = U(q) + K(p).$$
+<p>Because $H$ is a sum, the exponential factorises: $e^{-H} = e^{-U(q)}\, e^{-K(p)}$. So under the joint, $q \sim \pi$ and independently $p \sim \mathcal N(0, I)$. Two consequences. First, if we can produce samples of the joint and throw away the $p$ coordinates, what remains is a sample of $\pi(q)$. Second, the $p$ marginal is a standard Gaussian we can draw directly, which is exactly what “draw $p$” at the start of each iteration does.</p>
+
+<h4>3. Hamilton’s equations: a motion that leaves $\pi(q,p)$ unchanged</h4>
+<p>Treat $H$ as a physical energy and let $(q, p)$ move according to</p>
+$$\dot q = \frac{\partial H}{\partial p} = p, \qquad \dot p = -\frac{\partial H}{\partial q} = -\nabla U(q) = -\Sigma^{-1}(q-\mu).$$
+<p>In components, $\dot q_1 = p_1$, $\dot q_2 = p_2$, and</p>
+$$\begin{pmatrix}\dot p_1 \\ \dot p_2\end{pmatrix} = -\frac{1}{1-\rho^2}\begin{pmatrix} \dfrac{q_1-\mu_1}{\sigma_1^2} - \dfrac{\rho\,(q_2-\mu_2)}{\sigma_1\sigma_2} \\[10pt] \dfrac{q_2-\mu_2}{\sigma_2^2} - \dfrac{\rho\,(q_1-\mu_1)}{\sigma_1\sigma_2} \end{pmatrix}.$$
+<p>Two facts make this motion useful.</p>
+<p><em>(a) Energy is conserved.</em> Differentiate $H$ along the motion using the chain rule:</p>
+$$\frac{dH}{dt} = \nabla U(q)\cdot \dot q + p \cdot \dot p = \nabla U(q)\cdot p - p\cdot \nabla U(q) = 0.$$
+<p>So a trajectory lives on one shell $H = H_0$ in $(q,p)$ space, and the density $e^{-H}$ has the same value at every point along it.</p>
+<p><em>(b) The flow preserves volume.</em> The velocity field in $(q,p)$ space is $(\dot q, \dot p) = (p, -\nabla U(q))$. Its divergence is $\sum_i \partial \dot q_i / \partial q_i + \sum_i \partial \dot p_i / \partial p_i = 0 + 0$, because $\dot q$ does not depend on $q$ and $\dot p$ does not depend on $p$. A blob of points carried by the flow keeps its volume (Liouville’s theorem).</p>
+<p>Put together: take a cloud of points distributed as $e^{-H}$ and push every one of them along the flow for the same time $T$. Each point keeps its density value by (a), and no region is compressed or stretched by (b), so the cloud is still distributed as $e^{-H}$. The exact flow is a valid, deterministic, far-travelling move that leaves the joint distribution invariant.</p>
+<p>For the Gaussian the flow is explicit. Take $\rho = 0$ first: then $\ddot q_1 = \dot p_1 = -(q_1-\mu_1)/\sigma_1^2$, a harmonic oscillator with angular frequency $\omega_1 = 1/\sigma_1$, so</p>
+$$q_1(t) = \mu_1 + A\cos(t/\sigma_1 + \phi), \qquad \text{period } 2\pi\sigma_1.$$
+<p>Half a period, $\pi\sigma_1$, carries $q_1$ to the far side of the mode. Narrow directions oscillate fast and wide directions slowly. With $\rho \ne 0$ the same statement holds along the eigenvectors of $\Sigma$, with $\sigma$ replaced by the square root of the corresponding eigenvalue.</p>
+
+<h4>4. The shell, and why the fresh $p$ is (almost) tangent to it</h4>
+<p>Each iteration begins by drawing $p \sim \mathcal N(0, I)$ at the current $q$. The energy is then fixed:</p>
+$$H_0 = U(q) + \tfrac12 |p|^2 .$$
+<p>Along the trajectory $K \ge 0$, so $U(q) \le H_0$ everywhere: $q$ is confined inside the dashed ellipse $U(q) = H_0$, which is $(q-\mu)^\top\Sigma^{-1}(q-\mu) = 2H_0$. Those are the turning points, where all the energy would be potential and $p$ would vanish. Drawing $p$ inflates the shell outward by exactly $K$.</p>
+<p>Now the direction of $p$. Let $u = (q-\mu)/|q-\mu|$ be the unit radial vector (the grey dashed arrow, normalised) and $\theta$ the angle between $p$ and $u$:</p>
+$$\cos\theta = \frac{p^\top u}{|p|}.$$
+<p>The numerator $p^\top u = \sum_i p_i u_i$ is a linear combination of independent $\mathcal N(0,1)$ variables whose weights satisfy $\sum_i u_i^2 = 1$, so $p^\top u \sim \mathcal N(0, 1)$ exactly, in any dimension $d$. The denominator: $|p|^2 = \sum_{i=1}^d p_i^2 \sim \chi^2_d$, with mean $d$ and variance $2d$, so $|p| \approx \sqrt d$ with relative fluctuations of order $\sqrt{2/d}$. Hence</p>
+$$\cos\theta \approx \frac{\mathcal N(0,1)}{\sqrt d}.$$
+<p>In $d = 2$ the standard deviation of $\cos\theta$ is about $1/\sqrt 2 \approx 0.7$: the radial and tangential parts of $p$ are comparable, and you will see draws that point almost straight out of the bowl. In $d = 100$, $|\cos\theta| \lesssim 0.1$ nearly always: the sampled $p$ is almost surely nearly tangent to the shell, and the trajectory runs <em>around</em> the typical set rather than in and out of it. That is the geometry HMC exploits, and the reason it scales to high dimension. The readout shows $\cos\theta$ live; the status line reports it for each fresh draw.</p>
+<div class="aside">The radial part of $p$ is a bounded oscillation: it climbs the bowl and comes back. The tangential part is what carries $q$ around the shell to a genuinely new place. The orbit you see is both at once.</div>
+
+<h4>5. Leapfrog: simulating the flow without solving it</h4>
+<p>Choose a step size $\varepsilon$. One leapfrog step takes $(q, p)$ to $(q', p')$ by three sub-moves:</p>
+$$p_{1/2} = p - \tfrac{\varepsilon}{2}\,\nabla U(q) \quad\text{(half kick)},\qquad
+q' = q + \varepsilon\, p_{1/2} \quad\text{(drift)},\qquad
+p' = p_{1/2} - \tfrac{\varepsilon}{2}\,\nabla U(q') \quad\text{(half kick)}.$$
+<p>Repeat $L$ times. For our Gaussian every $\nabla U$ is the matrix–vector product $\Sigma^{-1}(q-\mu)$ written out in step 3. Tick “show the kick, drift, kick” in the View card to see each sub-move: a kick changes only $p$ (the teal arrow turns by half a step of the amber one), a drift changes only $q$ (the point slides along the teal arrow).</p>
+<p>Why this and not plain Euler? Each sub-move adds to one variable a function of the <em>other</em> variable only: it is a shear. A shear’s Jacobian is triangular with ones on the diagonal, so its determinant is $1$, so each sub-move preserves volume exactly, and so does their composition. Property (b) survives discretisation untouched. The scheme is also exactly reversible: negate $p$, run the same $L$ steps, negate $p$ again, and you land back where you started, because the sequence kick, drift, kick reads the same in both directions. Property (a) does <em>not</em> survive exactly: $H$ drifts and oscillates by an amount of order $\varepsilon^2$ (the sparkline in the side column). That residual is what accept/reject will correct.</p>
+<p>Stability, with a derivation specific to the Gaussian. Along a direction with standard deviation $\sigma$ the dynamics are $\ddot q = -(q-\mu)/\sigma^2$, i.e. $\omega = 1/\sigma$. Substituting the three sub-moves into one another, one leapfrog step is the linear map</p>
+$$\begin{pmatrix} q' \\ p' \end{pmatrix} =
+\begin{pmatrix} 1 - \dfrac{\varepsilon^2\omega^2}{2} &amp; \varepsilon \\[10pt] -\varepsilon\omega^2 + \dfrac{\varepsilon^3\omega^4}{4} &amp; 1 - \dfrac{\varepsilon^2\omega^2}{2} \end{pmatrix}
+\begin{pmatrix} q \\ p \end{pmatrix}.$$
+<p>Its determinant is $1$ (volume preservation again) and its trace is $2 - \varepsilon^2\omega^2$. A $2\times2$ matrix with determinant $1$ has eigenvalues on the unit circle, meaning bounded orbits, exactly when $|\mathrm{trace}| \le 2$. That is $\varepsilon\omega \le 2$, i.e. $\varepsilon \le 2\sigma$. The narrowest direction sets the limit:</p>
+$$\varepsilon \lt 2\,\sigma_{\min}, \qquad \sigma_{\min} = \sqrt{\text{smallest eigenvalue of } \Sigma}.$$
+<p class="try">Try it: push $\varepsilon$ past the limit printed in the integrator card. The trajectory blows up along the narrow axis, $H$ explodes, and every proposal is rejected.</p>
+
+<h4>6. Accept or reject</h4>
+<p>After $L$ steps we hold a proposal $(q^*, p^*)$. Accept it with probability</p>
+$$\alpha = \min\!\Big(1,\; \exp\!\big(-\,[\,H(q^*, p^*) - H(q, p)\,]\big)\Big) = \min\big(1, e^{-\Delta H}\big).$$
+<p>Why exactly this: the proposal map ($L$ leapfrog steps followed by negating $p$) is its own inverse and has Jacobian $1$, so the only thing that can break detailed balance for the joint density $e^{-H}$ is the change in $e^{-H}$ itself, and that ratio is $e^{-\Delta H}$. If the integrator were exact, $\Delta H$ would be $0$ and $\alpha = 1$ every time; in practice $\Delta H$ is small and most proposals are accepted. On accept, $q \leftarrow q^*$. On reject, $q$ stays where it was. Either way $p$ is thrown away and redrawn next iteration, so the momentum negation never has to appear in the code.</p>
+
+<h4>7. What gets tallied</h4>
+<p>One outer iteration yields one sample: the endpoint if accepted, the starting point if not. The intermediate leapfrog points are <em>not</em> samples of $\pi$. They all lie on a single energy shell $H \approx H_0$, and their $q$ values are strung along one curve. Only by redrawing $p$ (a new shell) many times do the endpoints fill in $\pi$. The histograms compare the recorded $q_1$ and $q_2$ with the exact marginals $\mathcal N(\mu_1, \sigma_1^2)$ and $\mathcal N(\mu_2, \sigma_2^2)$, read straight off the diagonal of $\Sigma$.</p>
+<p>There is also a two-dimensional check, and it is where the light indigo contours come from. Write $r^2 = (q-\mu)^\top \Sigma^{-1} (q-\mu)$. If $q \sim \mathcal N(\mu, \Sigma)$ then $z = \Sigma^{-1/2}(q-\mu) \sim \mathcal N(0, I)$, so $r^2 = z_1^2 + z_2^2$ is a sum of two squared independent standard normals: a $\chi^2_2$ variable, which is an exponential with mean $2$. Hence</p>
+$$P(r^2 \le c) = 1 - e^{-c/2}.$$
+<p>So the ellipse $r^2 = c$ encloses probability mass $1 - e^{-c/2}$, and the region holding mass $m$ is $r \le \sqrt{-2\ln(1-m)}$: $r = 1.18$ for $50\%$, $r = 2.15$ for $90\%$, $r = 3.03$ for $99\%$. A correct sampler must put those fractions of its samples inside those ellipses, which the moments table reports for the first two. For comparison, the grey $r = 1, 2, 3$ lines are level sets of $\pi$ at $e^{-r^2/2} = 61\%$, $14\%$ and $1.1\%$ of its peak, and they enclose $39\%$, $86\%$ and $98.9\%$ of the mass.</p>
+
+<h4>8. Tuning $\varepsilon$ and $L$: the U-turn</h4>
+<p>From step 3, along a direction with standard deviation $\sigma$ the flow returns to its start after time $2\pi\sigma$ and is farthest away at $\pi\sigma$. A trajectory of total length $L\varepsilon \approx \pi\sigma$ (for the widest direction) is the longest useful move; longer and the orbit turns back toward where it began, spending gradient evaluations to undo its own progress; much shorter and the sampler is diffusive again. The integrator card prints $L\varepsilon$ next to $\pi\sigma_{\max}$ and $\pi\sigma_{\min}$ so you can place yourself.</p>
+<p class="try">Try it: the defaults $\varepsilon = 0.15$, $L = 20$ give $L\varepsilon = 3 \approx \pi \cdot 1$ for the unit target. Stretch $\sigma_1$ to $1.5$ and watch the orbit undershoot along $q_1$; shrink $\sigma_2$ to $0.3$ and watch it over-rotate along $q_2$ while $\varepsilon$ creeps toward $2\sigma_{\min}$. Stopping before the U-turn, automatically, per trajectory, is what NUTS adds to this picture.</p>
+
+</div>
+</details>
+
+</div>
+<script>
+(() => {
+'use strict';
+const W = 6, PW = 4, NB = 48;
+// regions holding mass m of a 2-D Gaussian: r^2 ~ chi^2_2, so P(r^2 <= c) = 1 - exp(-c/2), hence r = sqrt(-2 ln(1 - m))
+const MASS = [0.5, 0.9, 0.99].map(m => ({ m, r: Math.sqrt(-2 * Math.log(1 - m)) }));
+const $ = id => document.getElementById(id);
+const fin = x => Number.isFinite(x);
+const f2 = x => Number.isNaN(x) ? '–' : (!fin(x) ? '∞' : (Math.abs(x) >= 1000 ? x.toExponential(2) : x.toFixed(2)));
+const f3 = x => Number.isNaN(x) ? '–' : (!fin(x) ? '∞' : (Math.abs(x) >= 1000 ? x.toExponential(2) : x.toFixed(3)));
+const sgn = x => (x >= 0 ? '+' : '') + f3(x);
+const setT = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+const FONT = 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+
+// ---------- theme tokens (read from CSS so dark/light both work) ----------
+let T = {};
+function readTokens() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = n => cs.getPropertyValue(n).trim();
+  T = {
+    bg: g('--surface'), text: g('--text'), muted: g('--muted'), grid: g('--grid'), line: g('--line'),
+    p: g('--c-p'), force: g('--c-force'), radial: g('--c-radial'), traj: g('--c-traj'), trajRGB: g('--c-traj-rgb'),
+    shell: g('--c-shell'), tangent: g('--c-tangent'), ok: g('--c-ok'), bad: g('--c-bad'), trueC: g('--c-true'),
+    densRGB: g('--density-rgb')
+  };
+}
+
+// ---------- target: pi(q) = N(mu, Sigma), U(q) = -log pi ----------
+let heat = null;
+const tgt = { mu: [0, 0], s: [1, 1], rho: 0, Sinv: [[1, 0], [0, 1]], chol: [[1, 0], [0, 1]], sigMin: 1, sigMax: 1 };
+function updateTarget() {
+  const s1 = tgt.s[0], s2 = tgt.s[1], r = tgt.rho, d = 1 - r * r;
+  tgt.Sinv = [[1 / (s1 * s1 * d), -r / (s1 * s2 * d)], [-r / (s1 * s2 * d), 1 / (s2 * s2 * d)]];
+  tgt.chol = [[s1, 0], [r * s2, s2 * Math.sqrt(d)]];
+  const tr = s1 * s1 + s2 * s2, det = s1 * s1 * s2 * s2 * d;
+  const disc = Math.sqrt(Math.max(0, tr * tr - 4 * det));
+  tgt.sigMin = Math.sqrt((tr - disc) / 2);
+  tgt.sigMax = Math.sqrt((tr + disc) / 2);
+  heat = null;
+}
+function gradU(q) {
+  const dx = q[0] - tgt.mu[0], dy = q[1] - tgt.mu[1], S = tgt.Sinv;
+  return [S[0][0] * dx + S[0][1] * dy, S[1][0] * dx + S[1][1] * dy];
+}
+function U(q) { const g = gradU(q); return 0.5 * ((q[0] - tgt.mu[0]) * g[0] + (q[1] - tgt.mu[1]) * g[1]); }
+function K(p) { return 0.5 * (p[0] * p[0] + p[1] * p[1]); }
+function H(q, p) { return U(q) + K(p); }
+function randn() {
+  let u = 0; while (u === 0) u = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * Math.random());
+}
+
+// ---------- sampler state ----------
+const st = {
+  q: [2, 1], p: [0, 0], pPrev: null, qStart: null,
+  phase: 'momentum', k: 0, sub: 0, H0: NaN, traj: [], ptraj: [], Htraj: [],
+  it: 0, acc: 0, samples: [], n: 0, s1: 0, s2: 0, s11: 0, s22: 0, s12: 0,
+  bins1: new Array(NB).fill(0), bins2: new Array(NB).fill(0),
+  prevOrbits: [], last: null, cosTheta: NaN, in50: 0, in90: 0,
+  eps: 0.15, L: 20, speed: 28, arrowScale: 0.6, substeps: false, showSamples: true, showMass: true, playing: false
+};
+function setStatus(s) { $('status').textContent = s; }
+
+function resetAll() {
+  const Lc = tgt.chol, z = [2, 1];
+  st.q = [tgt.mu[0] + Lc[0][0] * z[0] + Lc[0][1] * z[1], tgt.mu[1] + Lc[1][0] * z[0] + Lc[1][1] * z[1]];
+  st.p = [0, 0]; st.pPrev = null; st.qStart = null;
+  st.phase = 'momentum'; st.k = 0; st.sub = 0; st.H0 = NaN; st.traj = []; st.ptraj = []; st.Htraj = [];
+  st.it = 0; st.acc = 0; st.samples = []; st.n = 0; st.s1 = st.s2 = st.s11 = st.s22 = st.s12 = 0;
+  st.bins1.fill(0); st.bins2.fill(0); st.prevOrbits = []; st.last = null; st.cosTheta = NaN; st.in50 = st.in90 = 0;
+  setStatus('Ready. q starts off the mode at Mahalanobis radius √5. Press Step to draw a momentum p at this q, then keep stepping through the leapfrog orbit it produces.');
+}
+
+function recordSample(q) {
+  st.samples.push([q[0], q[1]]);
+  if (st.samples.length > 200000) st.samples.splice(0, 100000);
+  st.n++; st.s1 += q[0]; st.s2 += q[1]; st.s11 += q[0] * q[0]; st.s22 += q[1] * q[1]; st.s12 += q[0] * q[1];
+  const b1 = Math.floor((q[0] + W) / (2 * W) * NB), b2 = Math.floor((q[1] + W) / (2 * W) * NB);
+  if (b1 >= 0 && b1 < NB) st.bins1[b1]++;
+  if (b2 >= 0 && b2 < NB) st.bins2[b2]++;
+  const r2 = 2 * U(q);
+  if (r2 <= MASS[0].r * MASS[0].r) st.in50++;
+  if (r2 <= MASS[1].r * MASS[1].r) st.in90++;
+}
+
+function cosRadial(q, p) {
+  const r = [q[0] - tgt.mu[0], q[1] - tgt.mu[1]];
+  const rn = Math.hypot(r[0], r[1]), pn = Math.hypot(p[0], p[1]);
+  if (rn < 1e-9 || pn < 1e-9) return NaN;
+  return (p[0] * r[0] + p[1] * r[1]) / (rn * pn);
+}
+
+function drawMomentum() {
+  st.pPrev = st.p.slice();
+  st.p = [randn(), randn()];
+  st.qStart = st.q.slice();
+  st.H0 = H(st.q, st.p);
+  st.traj = [st.q.slice()]; st.ptraj = [st.p.slice()]; st.Htraj = [st.H0];
+  st.k = 0; st.sub = 0; st.last = null;
+  st.cosTheta = cosRadial(st.q, st.p);
+  st.phase = 'step';
+  const pn = Math.hypot(st.p[0], st.p[1]), Kp = K(st.p), Uq = U(st.q);
+  const c = st.cosTheta, deg = Math.acos(Math.max(-1, Math.min(1, c))) * 180 / Math.PI;
+  const word = !fin(c) ? 'q sits on the mode, so there is no radial direction yet'
+    : Math.abs(c) < 0.3 ? 'nearly tangent to the shell: this orbit will mostly travel around it'
+    : Math.abs(c) < 0.7 ? 'oblique: part tangential, part radial'
+    : 'mostly radial: this orbit will climb the bowl and fall back';
+  setStatus('Drew p = (' + f2(st.p[0]) + ', ' + f2(st.p[1]) + ') from N(0, I): |p| = ' + f2(pn) + ', K = ½|p|² = ' + f2(Kp)
+    + '. Angle to the radial vector q − μ: θ = ' + (fin(c) ? deg.toFixed(0) + '°' : '–') + ' (cos θ = ' + f2(c) + '), ' + word
+    + '. Energy for this trajectory: H₀ = U(q) + K = ' + f2(Uq) + ' + ' + f2(Kp) + ' = ' + f2(st.H0) + '. The dashed shell is U(q) = H₀.');
+}
+function halfKick() { const g = gradU(st.q); st.p[0] -= 0.5 * st.eps * g[0]; st.p[1] -= 0.5 * st.eps * g[1]; }
+function drift() { st.q[0] += st.eps * st.p[0]; st.q[1] += st.eps * st.p[1]; }
+function endStep() {
+  st.k++; st.traj.push(st.q.slice()); st.ptraj.push(st.p.slice());
+  const Hn = H(st.q, st.p); st.Htraj.push(Hn);
+  if (st.k >= st.L) st.phase = 'metropolis';
+  return Hn;
+}
+function leapfrogStep() {
+  halfKick(); drift(); halfKick();
+  const Hn = endStep();
+  setStatus('Leapfrog step ' + st.k + ' of ' + st.L + ': half kick p ← p − (ε/2)∇U(q), drift q ← q + εp, half kick p ← p − (ε/2)∇U(q). H = ' + f3(Hn) + ' (ΔH = ' + sgn(Hn - st.H0) + ').'
+    + (st.phase === 'metropolis' ? ' That was the last step; next comes accept/reject.' : ''));
+}
+function metropolis() {
+  const H1 = H(st.q, st.p), dH = H1 - st.H0;
+  const a = fin(dH) ? Math.min(1, Math.exp(-dH)) : 0;
+  const u = Math.random(), acc = u < a;
+  const qEnd = st.q.slice();
+  if (acc) st.acc++; else st.q = st.qStart.slice();
+  st.it++;
+  recordSample(st.q);
+  st.prevOrbits.push({ traj: st.traj, ptraj: st.ptraj });
+  if (st.prevOrbits.length > 6) st.prevOrbits.shift();
+  st.last = { acc, a, u, dH, H1, qEnd };
+  st.phase = 'momentum';
+  setStatus('Proposal q* = (' + f2(qEnd[0]) + ', ' + f2(qEnd[1]) + '). H* = ' + f3(H1) + ', ΔH = H* − H₀ = ' + sgn(dH)
+    + ', α = min(1, e^(−ΔH)) = ' + f3(a) + '; drew u = ' + f3(u) + (acc ? ' < α, accepted: q ← q*.' : ' ≥ α, rejected: q stays at the start of the trajectory.')
+    + ' Sample ' + st.it + ' recorded. Next: draw a fresh p.');
+}
+function tick() {
+  if (st.phase === 'momentum') drawMomentum();
+  else if (st.phase === 'step') {
+    if (!st.substeps) { leapfrogStep(); return; }
+    if (st.sub === 0) {
+      halfKick(); st.sub = 1;
+      setStatus('Step ' + (st.k + 1) + ' of ' + st.L + ', half kick: p ← p − (ε/2)∇U(q). Only p changed; the teal arrow moved by half a step of the amber one. q did not move.');
+    } else if (st.sub === 1) {
+      drift(); st.sub = 2;
+      setStatus('Step ' + (st.k + 1) + ' of ' + st.L + ', drift: q ← q + εp. Only q moved, straight along the teal arrow. p did not change.');
+    } else {
+      halfKick(); st.sub = 0;
+      const Hn = endStep();
+      setStatus('Step ' + st.k + ' of ' + st.L + ', half kick at the new q: p ← p − (ε/2)∇U(q′). Step complete. H = ' + f3(Hn) + ' (ΔH = ' + sgn(Hn - st.H0) + ').'
+        + (st.phase === 'metropolis' ? ' That was the last step; next comes accept/reject.' : ''));
+    }
+  } else metropolis();
+}
+function runIteration() {
+  if (st.phase === 'momentum') drawMomentum();
+  if (st.phase === 'step') {
+    if (st.sub === 1) { drift(); halfKick(); st.sub = 0; endStep(); }
+    else if (st.sub === 2) { halfKick(); st.sub = 0; endStep(); }
+    while (st.phase === 'step') { halfKick(); drift(); halfKick(); endStep(); }
+  }
+  metropolis();
+}
+
+// ---------- drawing helpers ----------
+function setupCanvas(c) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth || 300, h = c.clientHeight || 300;
+  const pw = Math.round(w * dpr), ph = Math.round(h * dpr);
+  if (c.width !== pw || c.height !== ph) { c.width = pw; c.height = ph; }
+  const ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w, h };
+}
+function buildHeat() {
+  const N = 200;
+  heat = document.createElement('canvas'); heat.width = N; heat.height = N;
+  const hc = heat.getContext('2d'), img = hc.createImageData(N, N);
+  const [r, g, b] = T.densRGB.split(',').map(Number);
+  let k = 0;
+  for (let j = 0; j < N; j++) {
+    const qy = W - (j + 0.5) / N * 2 * W;
+    for (let i = 0; i < N; i++) {
+      const qx = -W + (i + 0.5) / N * 2 * W;
+      const a = Math.pow(Math.exp(-U([qx, qy])), 0.6) * 0.62;
+      img.data[k++] = r; img.data[k++] = g; img.data[k++] = b; img.data[k++] = Math.round(a * 255);
+    }
+  }
+  hc.putImageData(img, 0, 0);
+}
+function ellipsePoint(r, t) {
+  const Lc = tgt.chol, c = Math.cos(t), s = Math.sin(t);
+  return [tgt.mu[0] + r * (Lc[0][0] * c + Lc[0][1] * s), tgt.mu[1] + r * (Lc[1][0] * c + Lc[1][1] * s)];
+}
+function ellipsePath(ctx, X, Y, r) {
+  ctx.beginPath();
+  for (let i = 0; i <= 120; i++) {
+    const q = ellipsePoint(r, i / 120 * 2 * Math.PI);
+    if (i === 0) ctx.moveTo(X(q[0]), Y(q[1])); else ctx.lineTo(X(q[0]), Y(q[1]));
+  }
+  ctx.closePath();
+}
+function arrow(ctx, x0, y0, x1, y1, color, width, dash, alpha) {
+  const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy);
+  if (!(len > 1.5)) return;
+  ctx.save();
+  ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (dash) ctx.setLineDash(dash);
+  const hl = Math.min(12, 5 + width * 2.2), ux = dx / len, uy = dy / len;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1 - ux * hl * 0.7, y1 - uy * hl * 0.7); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x1 - ux * hl - uy * hl * 0.42, y1 - uy * hl + ux * hl * 0.42);
+  ctx.lineTo(x1 - ux * hl + uy * hl * 0.42, y1 - uy * hl - ux * hl * 0.42);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+// ---------- main plot: position space ----------
+function drawMain() {
+  const c = $('main'), { ctx, w, h } = setupCanvas(c);
+  // a square plot region, so one unit of q1 and one unit of q2 are the same number of pixels
+  const side = Math.min(w - 58, h - 48);
+  const R = { x0: 44 + ((w - 58) - side) / 2, y0: 12 + ((h - 48) - side) / 2 };
+  R.x1 = R.x0 + side; R.y1 = R.y0 + side;
+  const pw = side, ph = side;
+  const X = q => R.x0 + (q + W) / (2 * W) * pw, Y = q => R.y1 - (q + W) / (2 * W) * ph;
+  const line = (a, b, c2, d) => { ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c2, d); ctx.stroke(); };
+  ctx.clearRect(0, 0, w, h); ctx.fillStyle = T.bg; ctx.fillRect(0, 0, w, h);
+  if (!heat) buildHeat();
+
+  ctx.save(); ctx.beginPath(); ctx.rect(R.x0, R.y0, pw, ph); ctx.clip();
+  ctx.imageSmoothingEnabled = true; ctx.drawImage(heat, R.x0, R.y0, pw, ph);
+
+  // grid and the coordinate axes through the origin
+  ctx.lineWidth = 1;
+  for (let v = -W + 1; v < W; v++) {
+    if (v === 0) continue;
+    ctx.strokeStyle = T.grid; ctx.globalAlpha = (v % 2 === 0) ? 1 : 0.5;
+    line(X(v), R.y0, X(v), R.y1); line(R.x0, Y(v), R.x1, Y(v));
+  }
+  ctx.globalAlpha = 1; ctx.strokeStyle = T.line; line(X(0), R.y0, X(0), R.y1); line(R.x0, Y(0), R.x1, Y(0));
+
+  // contours r = 1, 2, 3
+  ctx.strokeStyle = T.muted; ctx.lineWidth = 1; ctx.globalAlpha = 0.6;
+  for (const r of [1, 2, 3]) { ellipsePath(ctx, X, Y, r); ctx.stroke(); }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = T.muted; ctx.font = '11px ' + FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  for (const r of [1, 2, 3]) { const q = ellipsePoint(r, Math.PI / 4); ctx.fillText('r = ' + r, X(q[0]) + 3, Y(q[1]) - 2); }
+
+  // probability-mass contours: the regions the samples should fill at 50%, 90%, 99%
+  if (st.showMass) {
+    ctx.save(); ctx.strokeStyle = T.traj; ctx.lineWidth = 1.1; ctx.globalAlpha = 0.42;
+    for (const c of MASS) { ellipsePath(ctx, X, Y, c.r); ctx.stroke(); }
+    ctx.globalAlpha = 0.85; ctx.fillStyle = T.traj; ctx.font = '11px ' + FONT; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+    for (const c of MASS) { const q = ellipsePoint(c.r, -3 * Math.PI / 4); ctx.fillText(Math.round(c.m * 100) + '%', X(q[0]) - 3, Y(q[1]) + 2); }
+    ctx.restore();
+  }
+
+  // energy shell U(q) = H0
+  if (fin(st.H0) && st.H0 > 0) {
+    const rs = Math.sqrt(2 * st.H0);
+    ctx.save(); ctx.strokeStyle = T.shell; ctx.lineWidth = 1.7; ctx.setLineDash([7, 5]); ctx.globalAlpha = 0.9;
+    ellipsePath(ctx, X, Y, rs); ctx.stroke(); ctx.restore();
+    const q = ellipsePoint(rs, -Math.PI / 4);
+    ctx.fillStyle = T.shell; ctx.font = '11.5px ' + FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText('U = H₀', X(q[0]) + 4, Y(q[1]) + 2);
+  }
+
+  // mode marker
+  const mx = X(tgt.mu[0]), my = Y(tgt.mu[1]);
+  ctx.strokeStyle = T.text; ctx.lineWidth = 1.2; line(mx - 5, my, mx + 5, my); line(mx, my - 5, mx, my + 5);
+  ctx.fillStyle = T.text; ctx.font = '12px ' + FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  ctx.fillText('μ', mx + 6, my - 3);
+
+  // recorded samples
+  const n = st.samples.length;
+  if (st.showSamples && n) {
+    const step = Math.max(1, Math.ceil(n / 7000));
+    ctx.fillStyle = 'rgba(' + T.trajRGB + ',0.38)';
+    for (let i = 0; i < n; i += step) { const s = st.samples[i]; ctx.fillRect(X(s[0]) - 1, Y(s[1]) - 1, 2.2, 2.2); }
+  }
+
+  // earlier orbits, fading
+  const no = st.prevOrbits.length;
+  st.prevOrbits.forEach((o, j) => {
+    ctx.strokeStyle = T.traj; ctx.lineWidth = 1; ctx.globalAlpha = 0.07 + 0.12 * (j + 1) / no;
+    ctx.beginPath();
+    o.traj.forEach((pt, k) => { k ? ctx.lineTo(X(pt[0]), Y(pt[1])) : ctx.moveTo(X(pt[0]), Y(pt[1])); });
+    ctx.stroke();
+  });
+  ctx.globalAlpha = 1;
+
+  // current trajectory: polyline plus a point at every leapfrog step
+  if (st.traj.length) {
+    ctx.strokeStyle = T.traj; ctx.lineWidth = 1.7; ctx.globalAlpha = 0.9; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    st.traj.forEach((pt, k) => { k ? ctx.lineTo(X(pt[0]), Y(pt[1])) : ctx.moveTo(X(pt[0]), Y(pt[1])); });
+    if (st.phase === 'step' && st.sub !== 0) ctx.lineTo(X(st.q[0]), Y(st.q[1]));
+    ctx.stroke();
+    ctx.fillStyle = T.traj;
+    for (const pt of st.traj) { ctx.beginPath(); ctx.arc(X(pt[0]), Y(pt[1]), 2.5, 0, 2 * Math.PI); ctx.fill(); }
+    ctx.globalAlpha = 1; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(X(st.traj[0][0]), Y(st.traj[0][1]), 6.5, 0, 2 * Math.PI); ctx.stroke();
+  }
+
+  const q = st.q, a = st.arrowScale;
+  // radial vector from the mode
+  arrow(ctx, mx, my, X(q[0]), Y(q[1]), T.radial, 1.4, [6, 5], 0.55);
+  // tangent to the contour through q (perpendicular to grad U)
+  const g = gradU(q), gn = Math.hypot(g[0], g[1]);
+  if (gn > 1e-6 && fin(gn)) {
+    const tx = -g[1] / gn, ty = g[0] / gn, len = 1.1;
+    ctx.save(); ctx.strokeStyle = T.tangent; ctx.globalAlpha = 0.35; ctx.lineWidth = 1.2;
+    line(X(q[0] - len * tx), Y(q[1] - len * ty), X(q[0] + len * tx), Y(q[1] + len * ty)); ctx.restore();
+  }
+  // force arrow: dp/dt = -grad U
+  arrow(ctx, X(q[0]), Y(q[1]), X(q[0] - a * g[0]), Y(q[1] - a * g[1]), T.force, 2.4, null, 1);
+  // velocity arrow: dq/dt = p
+  if (st.phase === 'step' && st.k === 0 && st.sub === 0)
+    arrow(ctx, X(q[0]), Y(q[1]), X(q[0] + a * st.p[0]), Y(q[1] + a * st.p[1]), T.p, 9, null, 0.22);
+  arrow(ctx, X(q[0]), Y(q[1]), X(q[0] + a * st.p[0]), Y(q[1] + a * st.p[1]), T.p, 2.6, null, 1);
+  // the point q
+  ctx.fillStyle = T.traj; ctx.strokeStyle = T.bg; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(X(q[0]), Y(q[1]), 5.5, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+
+  // verdict of the last accept/reject
+  if (st.last && fin(st.last.qEnd[0]) && fin(st.last.qEnd[1])) {
+    const e = st.last.qEnd, x = X(e[0]), y = Y(e[1]);
+    ctx.save(); ctx.lineWidth = 2; ctx.font = '12px ' + FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    if (st.last.acc) {
+      ctx.strokeStyle = T.ok; ctx.beginPath(); ctx.arc(x, y, 10, 0, 2 * Math.PI); ctx.stroke();
+      ctx.fillStyle = T.ok; ctx.fillText('accepted', x + 14, y);
+    } else {
+      ctx.strokeStyle = T.bad; line(x - 7, y - 7, x + 7, y + 7); line(x - 7, y + 7, x + 7, y - 7);
+      ctx.setLineDash([3, 4]); ctx.globalAlpha = 0.7; line(x, y, X(q[0]), Y(q[1])); ctx.setLineDash([]); ctx.globalAlpha = 1;
+      ctx.fillStyle = T.bad; ctx.fillText('rejected, back to the start', x + 14, y);
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // ticks and axis names
+  ctx.fillStyle = T.muted; ctx.font = '11px ' + FONT;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let v = -W; v <= W; v += 2) ctx.fillText(v, X(v), R.y1 + 4);
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (let v = -W; v <= W; v += 2) ctx.fillText(v, R.x0 - 6, Y(v));
+  ctx.fillStyle = T.text; ctx.font = '13px ' + FONT;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText('q₁', R.x0 + pw / 2, h - 2);
+  ctx.save(); ctx.translate(12, R.y0 + ph / 2); ctx.rotate(-Math.PI / 2); ctx.textBaseline = 'middle'; ctx.fillText('q₂', 0, 0); ctx.restore();
+}
+
+// ---------- phase planes (q_i, p_i) ----------
+function drawPhase(cid, i) {
+  const c = $(cid), { ctx, w, h } = setupCanvas(c);
+  const R = { x0: 36, y0: 10, x1: w - 10, y1: h - 26 };
+  const pw = R.x1 - R.x0, ph = R.y1 - R.y0;
+  const X = q => R.x0 + (q + W) / (2 * W) * pw, Y = p => R.y1 - (p + PW) / (2 * PW) * ph;
+  const line = (a, b, c2, d) => { ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c2, d); ctx.stroke(); };
+  ctx.clearRect(0, 0, w, h); ctx.fillStyle = T.bg; ctx.fillRect(0, 0, w, h);
+  ctx.save(); ctx.beginPath(); ctx.rect(R.x0, R.y0, pw, ph); ctx.clip();
+  ctx.strokeStyle = T.grid; ctx.lineWidth = 1;
+  for (let v = -W + 2; v < W; v += 2) if (v) line(X(v), R.y0, X(v), R.y1);
+  for (let v = -PW + 2; v < PW; v += 2) if (v) line(R.x0, Y(v), R.x1, Y(v));
+  ctx.strokeStyle = T.line; line(R.x0, Y(0), R.x1, Y(0)); line(X(0), R.y0, X(0), R.y1);
+  ctx.save(); ctx.setLineDash([3, 4]); ctx.strokeStyle = T.muted; line(X(tgt.mu[i]), R.y0, X(tgt.mu[i]), R.y1); ctx.restore();
+  ctx.fillStyle = T.muted; ctx.font = '10.5px ' + FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText(i ? 'μ₂' : 'μ₁', X(tgt.mu[i]) + 3, R.y0 + 2);
+
+  const no = st.prevOrbits.length;
+  st.prevOrbits.forEach((o, j) => {
+    ctx.strokeStyle = T.traj; ctx.lineWidth = 1; ctx.globalAlpha = 0.07 + 0.12 * (j + 1) / no;
+    ctx.beginPath();
+    o.traj.forEach((pt, k) => { const x = X(pt[i]), y = Y(o.ptraj[k][i]); k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke();
+  });
+  ctx.globalAlpha = 1;
+  if (st.pPrev && st.traj.length) {
+    ctx.save(); ctx.setLineDash([2, 3]); ctx.strokeStyle = T.p; ctx.lineWidth = 1.6; ctx.globalAlpha = 0.85;
+    line(X(st.traj[0][i]), Y(st.pPrev[i]), X(st.traj[0][i]), Y(st.ptraj[0][i])); ctx.restore();
+  }
+  if (st.traj.length) {
+    ctx.strokeStyle = T.traj; ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.beginPath();
+    st.traj.forEach((pt, k) => { const x = X(pt[i]), y = Y(st.ptraj[k][i]); k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    if (st.phase === 'step' && st.sub !== 0) ctx.lineTo(X(st.q[i]), Y(st.p[i]));
+    ctx.stroke();
+    ctx.fillStyle = T.traj;
+    st.traj.forEach((pt, k) => { ctx.beginPath(); ctx.arc(X(pt[i]), Y(st.ptraj[k][i]), 2, 0, 2 * Math.PI); ctx.fill(); });
+    ctx.beginPath(); ctx.arc(X(st.traj[0][i]), Y(st.ptraj[0][i]), 5, 0, 2 * Math.PI); ctx.stroke();
+  }
+  ctx.fillStyle = T.traj; ctx.strokeStyle = T.bg; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(X(st.q[i]), Y(st.p[i]), 4.5, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+  ctx.restore();
+
+  ctx.fillStyle = T.muted; ctx.font = '10.5px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let v = -W; v <= W; v += 2) ctx.fillText(v, X(v), R.y1 + 3);
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (let v = -PW; v <= PW; v += 2) ctx.fillText(v, R.x0 - 5, Y(v));
+  ctx.fillStyle = T.text; ctx.font = '12.5px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText(i ? 'q₂' : 'q₁', R.x0 + pw / 2, h - 1);
+  ctx.save(); ctx.translate(11, R.y0 + ph / 2); ctx.rotate(-Math.PI / 2); ctx.textBaseline = 'middle'; ctx.fillText(i ? 'p₂' : 'p₁', 0, 0); ctx.restore();
+}
+
+// ---------- histograms against the exact marginals ----------
+function drawHist(cid, i) {
+  const c = $(cid), { ctx, w, h } = setupCanvas(c);
+  const R = { x0: 34, y0: 10, x1: w - 10, y1: h - 26 };
+  const pw = R.x1 - R.x0, ph = R.y1 - R.y0;
+  const X = q => R.x0 + (q + W) / (2 * W) * pw;
+  const mu = tgt.mu[i], sd = tgt.s[i];
+  const pdf = x => Math.exp(-0.5 * ((x - mu) / sd) ** 2) / (sd * Math.sqrt(2 * Math.PI));
+  const bins = i ? st.bins2 : st.bins1, bw = 2 * W / NB;
+  let hmax = 0; for (const b of bins) if (b > hmax) hmax = b;
+  const dmax = st.n ? hmax / (st.n * bw) : 0;
+  const ymax = Math.max(pdf(mu), dmax) * 1.12;
+  const Y = d => R.y1 - d / ymax * ph;
+  ctx.clearRect(0, 0, w, h); ctx.fillStyle = T.bg; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = T.grid; ctx.lineWidth = 1;
+  for (let v = -W + 2; v < W; v += 2) { ctx.beginPath(); ctx.moveTo(X(v), R.y0); ctx.lineTo(X(v), R.y1); ctx.stroke(); }
+  ctx.fillStyle = 'rgba(' + T.trajRGB + ',0.45)';
+  if (st.n) for (let b = 0; b < NB; b++) {
+    if (!bins[b]) continue;
+    const d = bins[b] / (st.n * bw), x = X(-W + b * bw);
+    ctx.fillRect(x + 0.5, Y(d), pw / NB - 1, R.y1 - Y(d));
+  }
+  ctx.strokeStyle = T.trueC; ctx.lineWidth = 1.8; ctx.beginPath();
+  for (let k = 0; k <= 240; k++) { const x = -W + k / 240 * 2 * W, y = Y(pdf(x)); k ? ctx.lineTo(X(x), y) : ctx.moveTo(X(x), y); }
+  ctx.stroke();
+  ctx.strokeStyle = T.line; ctx.beginPath(); ctx.moveTo(R.x0, R.y1); ctx.lineTo(R.x1, R.y1); ctx.stroke();
+  ctx.fillStyle = T.muted; ctx.font = '10.5px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let v = -W; v <= W; v += 2) ctx.fillText(v, X(v), R.y1 + 3);
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  ctx.fillText(ymax.toFixed(2), R.x0 - 4, R.y0 + 4); ctx.fillText('0', R.x0 - 4, R.y1);
+  ctx.fillStyle = T.text; ctx.font = '12.5px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText(i ? 'q₂' : 'q₁', R.x0 + pw / 2, h - 1);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.font = '11px ' + FONT; ctx.fillStyle = T.muted;
+  ctx.fillText(st.n ? 'n = ' + st.n : 'no samples yet', R.x0 + 6, R.y0 + 2);
+}
+
+// ---------- H along the current trajectory ----------
+function drawSpark() {
+  const c = $('spark'), { ctx, w, h } = setupCanvas(c);
+  ctx.clearRect(0, 0, w, h); ctx.fillStyle = T.bg; ctx.fillRect(0, 0, w, h);
+  const R = { x0: 44, y0: 9, x1: w - 8, y1: h - 9 };
+  let m = 0.02;
+  for (const v of st.Htraj) if (fin(v)) m = Math.max(m, Math.abs(v - st.H0));
+  m = Math.min(m, 50);
+  const Y = d => R.y1 - (d + m) / (2 * m) * (R.y1 - R.y0);
+  ctx.strokeStyle = T.line; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(R.x0, Y(0)); ctx.lineTo(R.x1, Y(0)); ctx.stroke();
+  ctx.fillStyle = T.muted; ctx.font = '10.5px ' + FONT; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  ctx.fillText('H₀', R.x0 - 5, Y(0)); ctx.fillText('+' + f2(m), R.x0 - 5, R.y0 + 2); ctx.fillText('−' + f2(m), R.x0 - 5, R.y1 - 2);
+  if (st.Htraj.length > 1) {
+    const X = k => R.x0 + k / Math.max(1, st.L) * (R.x1 - R.x0);
+    ctx.strokeStyle = T.force; ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.beginPath();
+    st.Htraj.forEach((v, k) => { const d = fin(v) ? Math.max(-m, Math.min(m, v - st.H0)) : m; k ? ctx.lineTo(X(k), Y(d)) : ctx.moveTo(X(k), Y(d)); });
+    ctx.stroke();
+  }
+}
+
+// ---------- readouts and stats ----------
+function updateReadouts() {
+  const Uq = U(st.q), Kp = K(st.p), Hh = Uq + Kp;
+  setT('r-it', st.it + (st.phase === 'momentum' ? '' : ' (running ' + (st.it + 1) + ')'));
+  const subTxt = st.substeps ? ['', ', after half kick', ', after drift'][st.sub] : '';
+  setT('r-step', st.phase === 'step' ? st.k + ' of ' + st.L + subTxt : (st.phase === 'metropolis' ? st.k + ' of ' + st.L + ', done' : '–'));
+  setT('r-U', f3(Uq)); setT('r-K', f3(Kp)); setT('r-H', f3(Hh)); setT('r-H0', f3(st.H0));
+  setT('r-dH', fin(st.H0) ? sgn(Hh - st.H0) : '–');
+  setT('r-pn', f3(Math.hypot(st.p[0], st.p[1])));
+  setT('r-rn', f3(Math.hypot(st.q[0] - tgt.mu[0], st.q[1] - tgt.mu[1])));
+  const cz = cosRadial(st.q, st.p);
+  setT('r-cos', fin(cz) ? f2(cz) + ' (θ = ' + (Math.acos(Math.max(-1, Math.min(1, cz))) * 180 / Math.PI).toFixed(0) + '°)' : '–');
+  setT('r-alpha', st.last ? f3(st.last.a) : '–');
+  setT('r-acc', st.it ? st.acc + ' of ' + st.it + ' (' + (100 * st.acc / st.it).toFixed(1) + '%)' : '–');
+  const badge = $('badge'), btn = $('btnStep');
+  if (st.phase === 'momentum') { badge.textContent = 'next: draw p ~ N(0, I)'; btn.textContent = 'Step: draw p'; }
+  else if (st.phase === 'step') {
+    badge.textContent = 'leapfrog, step ' + st.k + ' of ' + st.L;
+    btn.textContent = st.substeps ? ['Step: half kick', 'Step: drift', 'Step: half kick'][st.sub] : 'Step: leapfrog';
+  } else { badge.textContent = 'next: accept or reject'; btn.textContent = 'Step: accept/reject'; }
+}
+function updateStats() {
+  const n = st.n;
+  const m1 = n ? st.s1 / n : NaN, m2 = n ? st.s2 / n : NaN;
+  const v1 = n > 1 ? st.s11 / n - m1 * m1 : NaN, v2 = n > 1 ? st.s22 / n - m2 * m2 : NaN, c12 = n > 1 ? st.s12 / n - m1 * m2 : NaN;
+  setT('s-n', n); setT('s-acc', st.it ? (100 * st.acc / st.it).toFixed(1) + '%' : '–');
+  setT('s-m1', f2(m1)); setT('s-m2', f2(m2));
+  setT('s-sd1', f2(Math.sqrt(v1))); setT('s-sd2', f2(Math.sqrt(v2)));
+  setT('s-rho', f2(c12 / Math.sqrt(v1 * v2)));
+  setT('s-in50', n ? (100 * st.in50 / n).toFixed(1) + '%' : '–');
+  setT('s-in90', n ? (100 * st.in90 / n).toFixed(1) + '%' : '–');
+  setT('t-m1', f2(tgt.mu[0])); setT('t-m2', f2(tgt.mu[1]));
+  setT('t-sd1', f2(tgt.s[0])); setT('t-sd2', f2(tgt.s[1])); setT('t-rho', f2(tgt.rho));
+}
+function drawAll() {
+  drawMain(); drawPhase('ph1', 0); drawPhase('ph2', 1); drawHist('h1', 0); drawHist('h2', 1); drawSpark();
+  updateReadouts(); updateStats();
+}
+
+// ---------- controls ----------
+function addSlider(container, spec) {
+  const row = document.createElement('div'); row.className = 'slider';
+  const lab = document.createElement('label'); lab.textContent = spec.label; lab.htmlFor = 'sl-' + spec.id;
+  const inp = document.createElement('input'); inp.type = 'range'; inp.id = 'sl-' + spec.id;
+  inp.min = spec.min; inp.max = spec.max; inp.step = spec.step; inp.value = spec.val;
+  const out = document.createElement('output');
+  const fmt = spec.fmt || (v => v.toFixed(spec.dec === undefined ? 2 : spec.dec));
+  const apply = () => { const v = parseFloat(inp.value); spec.set(v); out.textContent = fmt(v); };
+  inp.addEventListener('input', () => { apply(); if (spec.target) { updateTarget(); resetAll(); } updateNotes(); drawAll(); });
+  row.append(lab, inp, out); container.appendChild(row); apply();
+}
+function stepsPerSec() { return 0.5 * Math.pow(10, st.speed / 100 * 5.3); }
+function speedLabel() {
+  const s = stepsPerSec();
+  if (s < 1) return '1 step per ' + (1 / s).toFixed(1) + ' s';
+  if (s < 300) return s.toFixed(0) + ' steps / s';
+  const per = st.substeps ? 3 * st.L + 2 : st.L + 2;
+  return '≈ ' + (s / per).toFixed(0) + ' iterations / s';
+}
+function updateNotes() {
+  const lim = 2 * tgt.sigMin, bad = st.eps >= lim;
+  const el = $('epsNote');
+  el.textContent = 'Stability for a Gaussian: leapfrog stays bounded only if ε < 2σ_min = ' + f2(lim)
+    + ' (σ_min = √(smallest eigenvalue of Σ) = ' + f2(tgt.sigMin) + ').' + (bad ? ' ε is past that, so the narrow axis will blow up.' : '');
+  el.classList.toggle('warn', bad);
+  $('lenNote').textContent = 'Trajectory length Lε = ' + f2(st.L * st.eps) + '. Half a period of the flow is πσ_max = ' + f2(Math.PI * tgt.sigMax)
+    + ' along the widest axis (the U-turn) and πσ_min = ' + f2(Math.PI * tgt.sigMin) + ' along the narrowest.';
+  setT('speedOut', speedLabel());
+}
+
+// ---------- playback ----------
+let lastT = 0, budget = 0;
+function frame(t) {
+  if (!st.playing) return;
+  const dt = Math.min(0.1, (t - lastT) / 1000); lastT = t;
+  const s = stepsPerSec();
+  budget += s * dt;
+  const n = Math.floor(budget); budget -= n;
+  if (n > 0) {
+    if (s >= 300) {
+      const per = st.substeps ? 3 * st.L + 2 : st.L + 2;
+      const iters = Math.min(4000, Math.max(1, Math.round(n / per)));
+      for (let i = 0; i < iters; i++) runIteration();
+      budget = 0;
+    } else {
+      for (let i = 0; i < n; i++) tick();
+    }
+    drawAll();
+  }
+  requestAnimationFrame(frame);
+}
+function setPlaying(on) {
+  st.playing = on;
+  $('btnPlay').textContent = on ? '❚❚ Pause' : '▶ Play';
+  if (on) { lastT = performance.now(); budget = 0; requestAnimationFrame(frame); }
+}
+function doStep() { setPlaying(false); tick(); drawAll(); }
+
+// ---------- wire up ----------
+readTokens();
+addSlider($('targetSliders'), { id: 'mu1', label: 'μ₁', min: -2, max: 2, step: 0.1, val: 0, dec: 1, target: true, set: v => { tgt.mu[0] = v; } });
+addSlider($('targetSliders'), { id: 'mu2', label: 'μ₂', min: -2, max: 2, step: 0.1, val: 0, dec: 1, target: true, set: v => { tgt.mu[1] = v; } });
+addSlider($('targetSliders'), { id: 's1', label: 'σ₁', min: 0.25, max: 1.5, step: 0.05, val: 1, target: true, set: v => { tgt.s[0] = v; } });
+addSlider($('targetSliders'), { id: 's2', label: 'σ₂', min: 0.25, max: 1.5, step: 0.05, val: 1, target: true, set: v => { tgt.s[1] = v; } });
+addSlider($('targetSliders'), { id: 'rho', label: 'ρ', min: -0.95, max: 0.95, step: 0.05, val: 0, target: true, set: v => { tgt.rho = v; } });
+addSlider($('integratorSliders'), { id: 'eps', label: 'ε step size', min: 0.01, max: 2, step: 0.01, val: 0.15, set: v => { st.eps = v; } });
+addSlider($('integratorSliders'), { id: 'L', label: 'L steps', min: 1, max: 100, step: 1, val: 20, dec: 0, set: v => { st.L = v; } });
+addSlider($('viewSliders'), { id: 'arrow', label: 'arrow scale', min: 0.1, max: 1.5, step: 0.05, val: 0.6, fmt: v => '×' + v.toFixed(2), set: v => { st.arrowScale = v; } });
+
+$('speed').addEventListener('input', e => { st.speed = +e.target.value; setT('speedOut', speedLabel()); });
+$('chkSub').addEventListener('change', e => { st.substeps = e.target.checked; setT('speedOut', speedLabel()); drawAll(); });
+$('chkSamples').addEventListener('change', e => { st.showSamples = e.target.checked; drawAll(); });
+$('chkMass').addEventListener('change', e => { st.showMass = e.target.checked; drawAll(); });
+$('btnStep').addEventListener('click', doStep);
+$('btnPlay').addEventListener('click', () => setPlaying(!st.playing));
+$('btnIter').addEventListener('click', () => { setPlaying(false); runIteration(); drawAll(); });
+$('btnReset').addEventListener('click', () => { setPlaying(false); resetAll(); drawAll(); });
+document.addEventListener('keydown', e => {
+  if (e.target && e.target.matches('input, textarea, select, button, summary')) return;
+  if (e.code === 'Space') { e.preventDefault(); setPlaying(!st.playing); }
+  else if (e.code === 'ArrowRight') { e.preventDefault(); doStep(); }
+});
+
+const onTheme = () => { readTokens(); heat = null; drawAll(); };
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', onTheme);
+new MutationObserver(onTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+let resizing = false;
+new ResizeObserver(() => { if (resizing) return; resizing = true; requestAnimationFrame(() => { resizing = false; drawAll(); }); }).observe(document.body);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawAll);
+
+updateTarget(); resetAll(); updateNotes(); drawAll();
+})();
+</script>
+</body>
+</html>
